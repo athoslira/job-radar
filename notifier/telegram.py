@@ -71,20 +71,19 @@ def _linha_relevancia(pontos: int) -> str:
     return "⭐" * cheias + "☆" * (5 - cheias) + f" ({pontos}/10)"
 
 
-def _teclado_feedback(job_id: str) -> dict:
+def _teclado_feedback(job_id: str, perfil_chave: str) -> dict:
     """Teclado inline 👍/👎 anexado à notificação — callback_data carrega a
-    direção (1/0) e o id do Job (hash md5, 32 chars), separados por "|".
-    Formato curto de propósito: o limite real do Telegram pra callback_data
-    é 64 bytes, e "fb|1|" + hash já usa 37 — sobra margem, mas não dá pra
-    ser generoso (ex: guardar o link inteiro não caberia).
+    direção (1/0), perfil e id do Job (hash md5, 32 chars), separados por
+    "|". O perfil é necessário porque a mesma vaga pode pertencer aos dois
+    nichos e o feedback deve atualizar apenas a ocorrência correta.
 
     Sem ISSO gravado no botão, o callback_query que chega quando alguém
     aperta não tem como saber DE QUAL vaga — a mensagem em si não é
     suficiente (ver processar_feedback_pendente)."""
     return {
         "inline_keyboard": [[
-            {"text": "👍", "callback_data": f"fb|1|{job_id}"},
-            {"text": "👎", "callback_data": f"fb|0|{job_id}"},
+            {"text": "👍", "callback_data": f"fb|1|{perfil_chave}|{job_id}"},
+            {"text": "👎", "callback_data": f"fb|0|{perfil_chave}|{job_id}"},
         ]]
     }
 
@@ -102,7 +101,7 @@ def _linha_aviso_antiga(job) -> str:
     return f"⚠️ <b>Postada {job.publicado_em}</b> — pode já estar preenchida.\n"
 
 
-def notificar_vaga(job) -> bool:
+def notificar_vaga(job, perfil_chave: str, perfil_nome: str) -> bool:
     # TODO (Fase 3): incluir aqui a % de compatibilidade com o currículo,
     # calculada por IA, quando essa etapa for implementada.
     #
@@ -111,7 +110,7 @@ def notificar_vaga(job) -> bool:
     linha_publicacao = f"<b>Publicada:</b> {job.publicado_em}\n" if job.publicado_em else ""
     linha_modalidade = f"<b>Modalidade:</b> {job.modalidade}\n" if job.modalidade else ""
     texto = (
-        f"🚨 <b>Nova vaga encontrada!</b>\n\n"
+        f"🚨 <b>Nova vaga — {perfil_nome}</b>\n\n"
         f"{_linha_aviso_antiga(job)}"
         f"<b>Relevância:</b> {_linha_relevancia(job.relevancia)}\n"
         f"<b>Motivo:</b> {job.motivo}\n"
@@ -125,10 +124,13 @@ def notificar_vaga(job) -> bool:
         f"Encontrada agora\n\n"
         f"<b>Link:</b>\n{job.link}"
     )
-    return enviar_mensagem(texto, reply_markup=_teclado_feedback(job.id))
+    return enviar_mensagem(
+        texto,
+        reply_markup=_teclado_feedback(job.id, perfil_chave),
+    )
 
 
-def notificar_vaga_exploratoria(job) -> bool:
+def notificar_vaga_exploratoria(job, perfil_chave: str, perfil_nome: str) -> bool:
     """Vaga achada via eixo Ibérico (Portugal/Espanha) — fisicamente lá, não
     remota. Mensagem separada de notificar_vaga() de propósito: mandar isso
     pelo template normal sugeriria "achado remoto de verdade", quando na
@@ -140,7 +142,7 @@ def notificar_vaga_exploratoria(job) -> bool:
     """
     linha_modalidade = f"<b>Modalidade:</b> {job.modalidade}\n" if job.modalidade else ""
     texto = (
-        f"🧭 <b>Vaga exploratória (Portugal/Espanha)</b>\n\n"
+        f"🧭 <b>Vaga exploratória — {perfil_nome} (Portugal/Espanha)</b>\n\n"
         f"{_linha_aviso_antiga(job)}"
         f"<b>Relevância:</b> {_linha_relevancia(job.relevancia)}\n"
         f"<b>Motivo:</b> {job.motivo}\n"
@@ -154,7 +156,10 @@ def notificar_vaga_exploratoria(job) -> bool:
         f"como remota, pode ser presencial ou híbrida. Confirma no link.\n\n"
         f"<b>Link:</b>\n{job.link}"
     )
-    return enviar_mensagem(texto, reply_markup=_teclado_feedback(job.id))
+    return enviar_mensagem(
+        texto,
+        reply_markup=_teclado_feedback(job.id, perfil_chave),
+    )
 
 
 # Margem sob o limite real do Telegram (4096 caracteres por mensagem) —
@@ -236,17 +241,24 @@ def _chamar_api_telegram(metodo: str, payload: dict) -> dict | None:
         return None
 
 
-def _parsear_callback_data(data: str) -> tuple[str, str] | None:
-    """Extrai (job_id, feedback) de um callback_data no formato
-    'fb|1|<id>' (positivo) / 'fb|0|<id>' (negativo) — None quando não
-    reconhece o formato (ex: o botão de confirmação 'fb|ok|-' que substitui
-    o teclado original depois de registrado, ou qualquer callback_data que
-    não seja deste projeto). Função pura, separada da chamada de rede de
-    propósito — é a parte que vale a pena testar sem mockar HTTP."""
+def _parsear_callback_data(data: str) -> tuple[str | None, str, str] | None:
+    """Extrai `(perfil, job_id, feedback)` do callback do Telegram.
+
+    O formato atual é `fb|1|<perfil>|<id>`. O formato legado
+    `fb|1|<id>` continua aceito com perfil `None`, para que botões de
+    notificações já enviadas não parem de funcionar depois da atualização.
+    """
     partes = (data or "").split("|")
-    if len(partes) != 3 or partes[0] != "fb" or partes[1] not in ("1", "0"):
+    if partes[0:1] != ["fb"] or len(partes) not in (3, 4) or partes[1] not in ("1", "0"):
         return None
-    return partes[2], ("positivo" if partes[1] == "1" else "negativo")
+    feedback = "positivo" if partes[1] == "1" else "negativo"
+    if len(partes) == 4:
+        perfil_chave, job_id = partes[2], partes[3]
+        if not perfil_chave or not job_id:
+            return None
+        return perfil_chave, job_id, feedback
+    job_id = partes[2]
+    return (None, job_id, feedback) if job_id else None
 
 
 _OFFSET_CHAVE = "telegram_update_offset"
@@ -304,8 +316,8 @@ def processar_feedback_pendente():
 
         parseado = _parsear_callback_data(callback.get("data", ""))
         if parseado is not None:
-            job_id, feedback = parseado
-            definir_feedback(job_id, feedback)
+            perfil_chave, job_id, feedback = parseado
+            definir_feedback(job_id, feedback, perfil_chave)
             emoji = "👍" if feedback == "positivo" else "👎"
             texto_toast = f"Registrado: {emoji}"
             # Substitui o teclado por um botão único, não-funcional de

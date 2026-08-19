@@ -138,6 +138,90 @@ def _garantir_coluna_feedback(conn):
         conn.execute("ALTER TABLE vagas_vistas ADD COLUMN feedback TEXT")
 
 
+def _criar_tabela_vagas(conn):
+    """Cria o schema atual, com identidade isolada por perfil.
+
+    A mesma URL pode ser relevante para CX e Dados/BI. Por isso `id` não
+    pode ser global: a chave real é `(perfil, id)`.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS vagas_vistas (
+            id TEXT NOT NULL,
+            perfil TEXT NOT NULL,
+            titulo TEXT,
+            empresa TEXT,
+            local TEXT,
+            link TEXT,
+            site TEXT,
+            encontrada_em TEXT DEFAULT CURRENT_TIMESTAMP,
+            chave_secundaria TEXT,
+            publicado_em TEXT,
+            modalidade TEXT,
+            relevancia INTEGER,
+            digest_pendente INTEGER,
+            exploratoria INTEGER,
+            situacao TEXT,
+            feedback TEXT,
+            PRIMARY KEY (perfil, id)
+        )
+    """)
+
+
+def _migrar_identidade_por_perfil(conn):
+    """Migra bancos antigos (`id` global) para `(perfil, id)`.
+
+    Linhas anteriores à criação de perfis e linhas do antigo perfil
+    `brasil` pertencem ao nicho original de Dados/BI. A migração preserva
+    todas as linhas e só remove a tabela legada depois de conferir a
+    contagem copiada. Todo o bloco participa da transação da conexão.
+    """
+    info = conn.execute("PRAGMA table_info(vagas_vistas)").fetchall()
+    pk_atual = [
+        nome
+        for _, nome in sorted(
+            (linha[5], linha[1]) for linha in info if linha[5]
+        )
+    ]
+
+    if pk_atual == ["perfil", "id"]:
+        conn.execute(
+            "UPDATE vagas_vistas SET perfil = 'dados_bi' "
+            "WHERE perfil = 'brasil'"
+        )
+        return
+
+    total_original = conn.execute("SELECT COUNT(*) FROM vagas_vistas").fetchone()[0]
+    conn.execute("ALTER TABLE vagas_vistas RENAME TO vagas_vistas_legado")
+    _criar_tabela_vagas(conn)
+    conn.execute("""
+        INSERT INTO vagas_vistas (
+            id, perfil, titulo, empresa, local, link, site, encontrada_em,
+            chave_secundaria, publicado_em, modalidade, relevancia,
+            digest_pendente, exploratoria, situacao, feedback
+        )
+        SELECT
+            id,
+            CASE
+                WHEN perfil IS NULL OR perfil = '' OR perfil = 'brasil'
+                    THEN 'dados_bi'
+                ELSE perfil
+            END,
+            titulo, empresa, local, link, site, encontrada_em,
+            chave_secundaria, publicado_em, modalidade, relevancia,
+            digest_pendente, exploratoria, situacao, feedback
+        FROM vagas_vistas_legado
+    """)
+
+    total_copiado = conn.execute("SELECT COUNT(*) FROM vagas_vistas").fetchone()[0]
+    if total_copiado != total_original:
+        raise RuntimeError(
+            "Migração do banco abortada: a contagem de vagas mudou "
+            f"({total_original} -> {total_copiado})."
+        )
+
+    conn.execute("DROP TABLE vagas_vistas_legado")
+
+
 class BancoVazioSuspeito(RuntimeError):
     """jobs.db já existia em disco (tinha conteúdo) mas a tabela veio vazia
     depois de iniciar_db() — não é primeiro uso, é banco perdido/corrompido/
@@ -151,30 +235,22 @@ def iniciar_db():
     arquivo_ja_existia = os.path.exists(DB_PATH) and os.path.getsize(DB_PATH) > 0
 
     with _conectar() as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS vagas_vistas (
-                id TEXT PRIMARY KEY,
-                titulo TEXT,
-                empresa TEXT,
-                local TEXT,
-                link TEXT,
-                site TEXT,
-                encontrada_em TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
+        _criar_tabela_vagas(conn)
         _garantir_coluna_chave_secundaria(conn)
         _garantir_coluna_publicado_em(conn)
         _garantir_coluna_modalidade(conn)
         _garantir_colunas_digest(conn)
         _garantir_coluna_situacao(conn)
         _garantir_coluna_feedback(conn)
+        _migrar_identidade_por_perfil(conn)
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_vagas_digest_pendente "
             "ON vagas_vistas (perfil, digest_pendente)"
         )
+        conn.execute("DROP INDEX IF EXISTS idx_vagas_chave_secundaria")
         conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_vagas_chave_secundaria "
-            "ON vagas_vistas (chave_secundaria)"
+            "CREATE INDEX IF NOT EXISTS idx_vagas_perfil_chave_secundaria "
+            "ON vagas_vistas (perfil, chave_secundaria)"
         )
         # Tabela chave/valor genérica — usada hoje só pra guardar a data do
         # último heartbeat diário (ver notifier/telegram.py e main.py), mas
@@ -204,7 +280,7 @@ def iniciar_db():
         )
 
 
-def ja_vista(job) -> bool:
+def ja_vista(job, perfil_chave: str) -> bool:
     """Recebe o Job inteiro (não só o id): precisa checar duas chaves.
 
     id = hash da URL (pega repost exato na mesma fonte). chave_secundaria =
@@ -213,8 +289,12 @@ def ja_vista(job) -> bool:
     """
     with _conectar() as conn:
         cursor = conn.execute(
-            "SELECT 1 FROM vagas_vistas WHERE id = ? OR chave_secundaria = ? LIMIT 1",
-            (job.id, job.chave_secundaria),
+            """
+            SELECT 1 FROM vagas_vistas
+            WHERE perfil = ? AND (id = ? OR chave_secundaria = ?)
+            LIMIT 1
+            """,
+            (perfil_chave, job.id, job.chave_secundaria),
         )
         return cursor.fetchone() is not None
 
@@ -235,7 +315,7 @@ def definir_metadado(chave: str, valor: str):
         )
 
 
-def salvar_vaga(job, perfil_chave: str = "", digest_pendente: bool = False, exploratoria: bool = False):
+def salvar_vaga(job, perfil_chave: str, digest_pendente: bool = False, exploratoria: bool = False):
     """`digest_pendente=True` marca a vaga como ainda não notificada —
     entrou na fila do digest diário (ver _enviar_digest_diario em main.py)
     em vez de mandar mensagem individual na hora, porque a relevância ficou
@@ -272,17 +352,26 @@ def definir_situacao(id_ou_link: str, situacao: str):
         )
 
 
-def definir_feedback(job_id: str, feedback: str):
+def definir_feedback(job_id: str, feedback: str, perfil_chave: str | None = None):
     """Grava a reação 👍/👎 do botão inline (ver processar_feedback_pendente
     em notifier/telegram.py) — 'positivo'/'negativo'. Só por id (não por
     link, diferente de definir_situacao): o callback_data do botão sempre
     carrega o id, nunca o link inteiro (custaria mais dos 64 bytes que o
     Telegram permite em callback_data)."""
     with _conectar() as conn:
-        conn.execute(
-            "UPDATE vagas_vistas SET feedback = ? WHERE id = ?",
-            (feedback, job_id),
-        )
+        if perfil_chave is None:
+            # Compatibilidade com botões enviados antes de o perfil passar
+            # a fazer parte do callback. Na base antiga o id era global,
+            # portanto esse fallback continua identificando uma única vaga.
+            conn.execute(
+                "UPDATE vagas_vistas SET feedback = ? WHERE id = ?",
+                (feedback, job_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE vagas_vistas SET feedback = ? WHERE perfil = ? AND id = ?",
+                (feedback, perfil_chave, job_id),
+            )
 
 
 def obter_vagas_pendentes_digest(perfil_chave: str) -> list[tuple]:

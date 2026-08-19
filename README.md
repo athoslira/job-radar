@@ -3,7 +3,7 @@
 <!-- ![JobRadar](assets/cover.png) -->
 
 # 📡 JobRadar
-### Monitor Automatizado de Vagas de Dados & BI
+### Monitor automatizado de vagas de Dados/BI e Customer Experience
 
 ![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![Playwright](https://img.shields.io/badge/Playwright-Scraping-2EAD33?style=for-the-badge&logo=playwright&logoColor=white)
@@ -20,7 +20,7 @@
 
 ## 💎 Proposta de valor
 
-> Em cidade pequena, vaga boa de Dados/BI aparece pouco e some rápido — quem checa o board duas vezes por dia perde pra quem checou na primeira hora. **JobRadar** é um sistema de monitoramento contínuo que substitui essa checagem manual: varre **8 fontes** a cada **3 horas**, filtra por cargo/cidade/mercado/idioma com três níveis de confiança, pontua cada vaga por relevância e notifica no Telegram — rodando de graça, sem servidor próprio, 24 horas por dia.
+> O **JobRadar** monitora continuamente dois nichos independentes — **Dados/BI** e **CX** —, identifica cada notificação no mesmo bot do Telegram e mantém deduplicação, digest e feedback separados por perfil. Ele varre as fontes a cada **3 horas**, sem servidor próprio.
 
 ## 📄 Resumo executivo
 
@@ -64,7 +64,7 @@ Vaga de alta relevância chega na hora, com motivo da aprovação, nível e link
 | **Busca** | Varre as fontes em paralelo, com rodízio de termos pra controlar custo por ciclo |
 | **Filtra** | Cargo (forte / ambíguo + qualificador / ferramenta + cargo), cidade ou mercado remoto, idioma |
 | **Pontua** | Score 0–10 por vaga: cargo, ferramenta, senioridade, mercado, idioma — soma de sinais, sem IA |
-| **Deduplica** | Por link e por empresa+título, pra pegar a mesma vaga republicada em fonte diferente |
+| **Deduplica** | Por perfil, link e empresa+título, sem deixar um nicho apagar o outro |
 | **Notifica** | Alta relevância na hora; o resto num resumo diário ranqueado, melhor vaga no topo |
 | **Aprende** | Botão 👍/👎 em cada notificação — feedback vira dado pra medir precisão por fonte e por semana |
 
@@ -72,6 +72,7 @@ Vaga de alta relevância chega na hora, com motivo da aprovação, nível e link
 
 - **Filtro em 3 níveis de confiança:** cargo inequívoco passa sozinho; cargo ambíguo (ex: "Business Analyst") só conta com qualificador de dados junto no título; ferramenta (ex: "Power BI") só conta com palavra de cargo junto — nada aprova por palavra-chave solta.
 - **Score de relevância sem ML:** 5 sinais conhecidos (cargo, ferramenta, senioridade, mercado, idioma), pesos calibrados contra o histórico real do banco, não chutados.
+- **Um bot, dois nichos:** Dados/BI e CX compartilham chat e banco, mas mantêm estado e feedback separados pelo perfil.
 - **Zero infraestrutura:** GitHub Actions como motor de cron, SQLite como banco — versionado no próprio Git, o histórico de vagas já vistas *é* o commit.
 - **Resiliente:** nunca marca vaga como "vista" sem confirmar que a notificação saiu; alerta automático se metade das fontes falhar num ciclo; heartbeat diário confirmando que o robô ainda está de pé.
 - **73 testes automatizados em CI:** cada caso documenta um bug real já corrigido nesta base — não é cenário hipotético, é regressão registrada.
@@ -82,8 +83,8 @@ obradar/
 ├── README.md
 ├── requirements.txt
 ├── main.py ← motor único: um ciclo de busca por perfil
-├── perfis.py ← Brasil vs Internacional (dado, não lógica duplicada)
-├── config.py / config_intl.py ← cargos, cidades, termos de busca, pesos
+├── core/perfis.py ← Dados/BI e CX (dados, não lógica duplicada)
+├── core/config.py / core/config_cx.py ← cargos e termos de cada nicho
 ├── job.py ← Job, filtro, score de relevância
 ├── relatorio_precisao.py ← aprovadas/notificadas por fonte e por semana
 ├── database/
@@ -110,10 +111,11 @@ pip install -r requirements.txt
 python -m playwright install chromium
 ```
 
-Criar `.env` na raiz com `TELEGRAM_BOT_TOKEN` e `TELEGRAM_CHAT_ID` (via [@BotFather](https://t.me/BotFather)), depois:
+Configure `TELEGRAM_BOT_TOKEN` e `TELEGRAM_CHAT_ID` seguindo o
+[guia do Telegram](CONFIGURAR_TELEGRAM.md), depois:
 
 ```bash
-python main.py --perfil brasil internacional --once
+python main.py --perfil dados_bi cx --once
 ```
 
 ## 🧪 Testes
@@ -122,7 +124,7 @@ python main.py --perfil brasil internacional --once
 pytest tests/ -v
 ```
 
-73 casos parametrizados, cobrindo a camada de filtro, o parsing de callback do Telegram e o relatório de precisão — todos rodando automaticamente a cada push via GitHub Actions.
+Casos parametrizados cobrem os filtros dos dois nichos, a migração do banco, o callback do Telegram e o relatório de precisão — todos rodando automaticamente a cada push via GitHub Actions.
 
 ---
 

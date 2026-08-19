@@ -310,7 +310,7 @@ def ciclo_de_busca(perfil: Perfil):
 
             novas_da_fonte = 0
             for vaga in vagas_filtradas:
-                if ja_vista(vaga):
+                if ja_vista(vaga, perfil.chave):
                     continue
 
                 # Item 08: só notifica na hora quando a relevância passa do
@@ -337,7 +337,7 @@ def ciclo_de_busca(perfil: Perfil):
                     # pra sempre — o próximo ciclo pulava ela em ja_vista()
                     # e a vaga se perdia sem nunca ter sido notificada de
                     # verdade.
-                    if not notificar_vaga(vaga):
+                    if not notificar_vaga(vaga, perfil.chave, perfil.nome):
                         logger.warning(
                             f"[{perfil.nome}] Falha ao notificar '{vaga.titulo}' - não marcada "
                             "como vista, tenta de novo no próximo ciclo."
@@ -357,12 +357,12 @@ def ciclo_de_busca(perfil: Perfil):
                 novas_da_fonte += 1
 
             for vaga in vagas_secundarias:
-                if ja_vista(vaga):
+                if ja_vista(vaga, perfil.chave):
                     continue
 
                 # Mesma regra de vaga antiga do loop acima.
                 if vaga.relevancia >= LIMIAR_DIGEST_IMEDIATO and not vaga.publicacao_antiga:
-                    if not notificar_vaga_exploratoria(vaga):
+                    if not notificar_vaga_exploratoria(vaga, perfil.chave, perfil.nome):
                         logger.warning(
                             f"[{perfil.nome}] Falha ao notificar '{vaga.titulo}' (exploratória) - "
                             "não marcada como vista, tenta de novo no próximo ciclo."
@@ -459,8 +459,8 @@ def main():
         nargs="+",
         choices=sorted(PERFIS.keys()),
         help=(
-            "Qual(is) mercado(s) rodar nesta execução — 'brasil', 'internacional', "
-            "ou os dois (--perfil brasil internacional)."
+            "Qual(is) perfil(is) rodar nesta execução — use "
+            "'--perfil dados_bi cx' para os dois nichos principais."
         ),
     )
     parser.add_argument(

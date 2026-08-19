@@ -69,8 +69,8 @@ def test_envia_mesmo_o_ciclo_terminando_fora_da_hora_exata(cenario, monkeypatch)
     min, funcao rodando 01:39. A condicao antiga (hora == 0) barrava."""
     _rodar(monkeypatch, hora_utc=1)
     assert len(cenario["enviadas"]) == 1
-    assert cenario["marcou_enviado"] == ["brasil"]
-    assert cenario["metadados"]["digest_ultimo_dia_brasil"] == "2026-08-18"
+    assert cenario["marcou_enviado"] == ["dados_bi"]
+    assert cenario["metadados"]["digest_ultimo_dia_dados_bi"] == "2026-08-18"
 
 
 @pytest.mark.parametrize("hora", [0, 1, 2, 5, 11, 17, 23])
@@ -109,14 +109,14 @@ def test_falha_de_envio_nao_marca_como_enviado(cenario, monkeypatch):
     cenario["envio_ok"] = False
     _rodar(monkeypatch, hora_utc=1)
     assert cenario["marcou_enviado"] == []
-    assert "digest_ultimo_dia_brasil" not in cenario["metadados"]
+    assert "digest_ultimo_dia_dados_bi" not in cenario["metadados"]
 
 
 def test_fila_vazia_marca_o_dia_sem_mandar_mensagem(cenario, monkeypatch):
     monkeypatch.setattr(main, "obter_vagas_pendentes_digest", lambda p: [])
     _rodar(monkeypatch, hora_utc=1)
     assert cenario["enviadas"] == []
-    assert cenario["metadados"]["digest_ultimo_dia_brasil"] == "2026-08-18"
+    assert cenario["metadados"]["digest_ultimo_dia_dados_bi"] == "2026-08-18"
 
 
 def test_respeita_hora_configurada_quando_nao_e_zero(cenario, monkeypatch):

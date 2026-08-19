@@ -39,16 +39,14 @@ jobs:
           pip install -r requirements.txt
           python -m playwright install --with-deps chromium
 
-      - name: Rodar JobRadar (um ciclo de cada perfil)
+      - name: Rodar JobRadar (Dados/BI e CX no mesmo bot)
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        # Antes disso só o perfil Brasil rodava aqui — main_intl.py existia
-        # no repositório mas nunca foi chamado pelo workflow, então o
-        # pipeline internacional nunca rodou de verdade em produção. Agora é
-        # um projeto só com dois perfis selecionáveis (ver core/perfis.py); os
-        # dois rodam na mesma execução/commit, um após o outro.
-        run: python main.py --perfil brasil internacional --once
+        # Um processo, um banco e um chat do Telegram. O perfil faz parte da
+        # identidade da vaga, então Dados/BI e CX mantêm deduplicação,
+        # digest e feedback independentes mesmo centralizados no mesmo bot.
+        run: python main.py --perfil dados_bi cx --once
 
       - name: Salvar vagas já vistas (evita notificação duplicada)
         run: |

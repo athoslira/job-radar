@@ -1,4 +1,4 @@
-"""Perfis de mercado (Brasil / Internacional) do JobRadar.
+"""Perfis de busca do JobRadar.
 
 Antes disso existiam DOIS programas quase idênticos — main.py e
 main_intl.py — cada um com sua própria cópia do ciclo de busca (buscar →
@@ -43,6 +43,14 @@ from core.config_intl import (
     MERCADOS_REMOTO_ACEITOS_INTL,
     IDIOMAS_EXIGIDOS_INTL,
 )
+from core.config_cx import (
+    KEYWORDS_CX,
+    KEYWORDS_CARGO_FORTE_CX,
+    KEYWORDS_CARGO_AMBIGUO_CX,
+    QUALIFICADORES_CX,
+    TERMOS_BUSCA_CX,
+    TERMOS_POR_CICLO_CX,
+)
 from core.job import RegrasFiltro
 from scrapers.catho import CathoScraper
 from scrapers.geekhunter import GeekHunterScraper
@@ -80,8 +88,8 @@ class DefinicaoScraper:
 
 @dataclass
 class Perfil:
-    chave: str  # "brasil" / "internacional" — valor do --perfil e sufixo de chave em metadados
-    nome: str  # nome de exibição nos logs/Telegram, ex: "Internacional"
+    chave: str  # "dados_bi" / "cx" — valor do --perfil e sufixo de chave em metadados
+    nome: str  # nome de exibição nos logs/Telegram
     palavras_monitoradas: list[str]
     paises_pesquisados: list[str] | None  # só o perfil internacional imprime isso no banner
     regras: RegrasFiltro
@@ -212,9 +220,9 @@ _SCRAPERS_BR = [
     DefinicaoScraper(SeniorScraper, FREQUENCIA_BAIXA),      # 0,3%, mas 4s e cobre cidade
 ]
 
-PERFIL_BR = Perfil(
-    chave="brasil",
-    nome="Brasil",
+PERFIL_DADOS_BI = Perfil(
+    chave="dados_bi",
+    nome="Dados/BI",
     palavras_monitoradas=KEYWORDS,
     paises_pesquisados=None,
     regras=_REGRAS_BR,
@@ -223,6 +231,39 @@ PERFIL_BR = Perfil(
     eixo_secundario_rotulo="Ibéria",
     termos_busca=TERMOS_BUSCA,
     termos_por_ciclo=TERMOS_POR_CICLO,
+    definicao_scrapers=_SCRAPERS_BR,
+    max_scrapers_concorrentes=4,
+)
+
+# Alias mantido para os módulos e testes que ainda usam o nome histórico.
+# A chave persistida passa a ser "dados_bi", que descreve o nicho em vez
+# de confundir nicho profissional com geografia.
+PERFIL_BR = PERFIL_DADOS_BI
+
+
+_REGRAS_CX = RegrasFiltro(
+    keywords_forte=KEYWORDS_CARGO_FORTE_CX,
+    keywords_ambiguo=KEYWORDS_CARGO_AMBIGUO_CX,
+    qualificadores_dados=QUALIFICADORES_CX,
+    ferramentas_titulo=[],
+    qualificadores_cargo=[],
+    cidades=CIDADES,
+    mercados_remoto_aceitos=MERCADOS_REMOTO_ACEITOS,
+)
+
+PERFIL_CX = Perfil(
+    chave="cx",
+    nome="CX",
+    palavras_monitoradas=KEYWORDS_CX,
+    paises_pesquisados=None,
+    regras=_REGRAS_CX,
+    regras_eixo_secundario=None,
+    eixo_secundario_ativo=False,
+    eixo_secundario_rotulo="",
+    termos_busca=TERMOS_BUSCA_CX,
+    termos_por_ciclo=TERMOS_POR_CICLO_CX,
+    # Os scrapers recebem os termos do perfil por parâmetro e podem ser
+    # reaproveitados sem conter lógica específica de Dados/BI ou CX.
     definicao_scrapers=_SCRAPERS_BR,
     max_scrapers_concorrentes=4,
 )
@@ -286,6 +327,6 @@ PERFIL_INTL = Perfil(
 )
 
 PERFIS = {
-    PERFIL_BR.chave: PERFIL_BR,
-    PERFIL_INTL.chave: PERFIL_INTL,
+    PERFIL_DADOS_BI.chave: PERFIL_DADOS_BI,
+    PERFIL_CX.chave: PERFIL_CX,
 }
