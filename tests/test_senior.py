@@ -92,6 +92,7 @@ def test_modalidade(job_model, esperado):
 # ------------------------------------------------------------ LOCALIZACAO
 
 @pytest.mark.parametrize("localizacao, esperado", [
+    ({"city": "Brasília", "province": "DF", "country": "Brasil"}, "Brasília - DF"),
     ({"city": "Natal", "province": "RN", "country": "Brasil"}, "Natal - RN"),
     ({"city": "Campina Grande", "province": "PB", "country": "Brasil"}, "Campina Grande - PB"),
     ({"city": "Manaus", "province": "AM", "country": "Brasil"}, "Manaus - AM"),
@@ -112,10 +113,10 @@ def test_local_sai_no_formato_que_o_filtro_de_cidade_entende():
     from core.job import Job
 
     job = Job(titulo="Analista de Dados", empresa="X",
-              local=_local({"city": "Natal", "province": "RN", "country": "Brasil"}),
+              local=_local({"city": "Brasília", "province": "DF", "country": "Brasil"}),
               link="https://x/1", site="Senior", modalidade="Presencial")
     assert job.combina_com(PERFIL_BR.regras)
-    assert extrair_escopo_remoto("Natal - RN", "Remoto") == {"Brasil"}
+    assert extrair_escopo_remoto("Brasília - DF", "Remoto") == {"Brasil"}
 
 
 # --------------------------------------------------------------- EXPIRADA

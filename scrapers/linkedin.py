@@ -9,7 +9,13 @@ from core.config import (
     LOCATIONS_LINKEDIN_CIDADES_PRESENCIAL,
     LOCATIONS_LINKEDIN_REMOTO_APENAS,
 )
-from core.job import Job, _e_remoto, _normalizar, extrair_data_publicacao
+from core.job import (
+    Job,
+    _contem_termo,
+    _e_remoto,
+    _normalizar,
+    extrair_data_publicacao,
+)
 from core.logger import get_logger
 from scrapers.base import BaseScraper
 
@@ -41,6 +47,15 @@ MAX_PAGINAS_REMOTO = 2
 # cidades já é o triplo de requisições da passada nacional sozinha, então
 # manter enxuto aqui é o que evita esse custo virar desproporcional.
 MAX_PAGINAS_CIDADE = 1
+
+
+def _titulo_global_em_ingles(titulo: str, keywords: list[str]) -> bool:
+    """Valida o proxy de idioma do eixo mundial sem depender do navegador."""
+    titulo_norm = _normalizar(titulo)
+    return any(
+        _contem_termo(_normalizar(keyword), titulo_norm)
+        for keyword in keywords
+    )
 
 
 class LinkedInScraper(BaseScraper):
@@ -94,6 +109,8 @@ class LinkedInScraper(BaseScraper):
         locations: list[str] | None = None,
         locations_remoto_apenas: list[str] | None = None,
         locations_cidades_presencial: list[str] | None = None,
+        keywords_titulo_global: list[str] | None = None,
+        termos_busca_global: list[str] | None = None,
     ):
         self.termos_busca = termos_busca
         self.locations = locations if locations is not None else LOCATIONS_LINKEDIN
@@ -107,6 +124,8 @@ class LinkedInScraper(BaseScraper):
             if locations_cidades_presencial is not None
             else LOCATIONS_LINKEDIN_CIDADES_PRESENCIAL
         )
+        self.keywords_titulo_global = keywords_titulo_global or []
+        self.termos_busca_global = termos_busca_global or termos_busca
 
     def buscar_vagas(self) -> list[Job]:
         vagas: list[Job] = []
@@ -114,13 +133,18 @@ class LinkedInScraper(BaseScraper):
             for location in self.locations:
                 vagas.extend(self._buscar_termo(termo, location, remoto=False))
                 vagas.extend(self._buscar_termo(termo, location, remoto=True))
-            for location in self.locations_remoto_apenas:
-                vagas.extend(self._buscar_termo(termo, location, remoto=True))
             for location in self.locations_cidades_presencial:
                 vagas.extend(self._buscar_termo(
                     termo, location, remoto=False,
                     max_paginas=MAX_PAGINAS_CIDADE, rotulo="cidade",
                 ))
+
+        # O eixo mundial tem termos próprios e sempre em inglês. Ele não
+        # participa do rodízio nacional para que um bloco só de termos em
+        # português não deixe o exterior sem busca naquele ciclo.
+        for termo in self.termos_busca_global:
+            for location in self.locations_remoto_apenas:
+                vagas.extend(self._buscar_termo(termo, location, remoto=True))
 
         total_mercados = (
             len(self.locations) + len(self.locations_remoto_apenas)
@@ -190,6 +214,20 @@ class LinkedInScraper(BaseScraper):
                                 continue
                             titulo = titulo_el.inner_text().strip()
 
+                            # No eixo mundial, o título em inglês é parte
+                            # da política de idioma. A busca pode devolver
+                            # resultado aproximado em outro idioma; ele não
+                            # deve entrar só porque o cargo pertence ao
+                            # nicho. No eixo Brasil esta guarda não se
+                            # aplica: títulos em português continuam sendo
+                            # válidos normalmente.
+                            eixo_global = remoto and location in self.locations_remoto_apenas
+                            if eixo_global and self.keywords_titulo_global:
+                                if not _titulo_global_em_ingles(
+                                    titulo, self.keywords_titulo_global
+                                ):
+                                    continue
+
                             empresa_el = card.query_selector("h4.base-search-card__subtitle a")
                             empresa = empresa_el.inner_text().strip() if empresa_el else "Não informado"
 
@@ -224,9 +262,15 @@ class LinkedInScraper(BaseScraper):
                                 empresa=empresa,
                                 local=local,
                                 link=link,
-                                site="LinkedIn",
+                                site="LinkedIn Global" if eixo_global else "LinkedIn",
                                 publicado_em=publicado_em,
                                 modalidade=modalidade,
+                                # Em busca global o local do card costuma
+                                # ser a sede da empresa, não a abrangência
+                                # permitida da vaga. O filtro f_WT=2 já
+                                # confirmou 100% remoto; não transforme a
+                                # sede em restrição de contratação.
+                                escopo_indefinido=eixo_global,
                             ))
                         except Exception as e:
                             logger.warning(f"[LinkedIn] Erro ao processar card: {e}")

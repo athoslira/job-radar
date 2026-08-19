@@ -34,13 +34,5 @@ Depois abra **Actions → JobRadar → Run workflow** para executar o primeiro
 ciclo manualmente. As próximas execuções acontecem automaticamente a cada
 três horas.
 
-## Teste local opcional
-
-Copie `.env.example` para `.env`, substitua os dois valores e execute:
-
-```bash
-python main.py --perfil dados_bi cx --once
-```
-
 Nunca publique o arquivo `.env` nem cole o token em código ou em mensagens.
 O `.gitignore` deste projeto já impede o versionamento acidental do `.env`.

@@ -7,6 +7,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timezone
 
 from core.config import DIGEST_HORA_UTC, INTERVALO_MINUTOS, LIMIAR_DIGEST_IMEDIATO
+from core.descricao_vaga import enriquecer_vaga
+from core.job import Job, RegrasFiltro
 from database.database import (
     BancoVazioSuspeito,
     definir_metadado,
@@ -14,6 +16,7 @@ from database.database import (
     ja_vista,
     marcar_digest_enviado,
     obter_metadado,
+    obter_ajuste_match_feedback,
     obter_vagas_pendentes_digest,
     salvar_vaga,
 )
@@ -29,6 +32,30 @@ from utils.filtro import filtrar_vagas
 from core.logger import get_logger
 
 logger = get_logger()
+
+
+def _atualizar_match_com_descricao(
+    vaga: Job,
+    regras: RegrasFiltro,
+    perfil_chave: str,
+):
+    """Lê requisitos da vaga e recalcula o match antes de notificar/salvar."""
+    resultado = enriquecer_vaga(vaga)
+    vaga.relevancia = vaga.pontuar_relevancia(regras)
+    vaga.motivo = vaga.motivo_aprovacao(regras)
+    ajuste, amostra, taxa = obter_ajuste_match_feedback(vaga.titulo, perfil_chave)
+    if ajuste:
+        vaga.relevancia = max(0, min(10, vaga.relevancia + ajuste))
+        vaga.motivo += (
+            f" · feedback: {taxa:.0%} positivo em {amostra} vagas similares"
+        )
+    logger.info(
+        "Descrição de '%s': %s (%s caracteres), match %s%%.",
+        vaga.titulo,
+        resultado.metodo,
+        len(vaga.descricao),
+        vaga.probabilidade_match,
+    )
 
 
 def _fontes_baixa_frequencia_ja_rodaram_hoje(perfil: Perfil) -> bool:
@@ -313,7 +340,13 @@ def ciclo_de_busca(perfil: Perfil):
                 if ja_vista(vaga, perfil.chave):
                     continue
 
-                # Item 08: só notifica na hora quando a relevância passa do
+                _atualizar_match_com_descricao(
+                    vaga,
+                    perfil.regras,
+                    perfil.chave,
+                )
+
+                # Item 08: só notifica na hora quando o match passa do
                 # limiar (ver LIMIAR_DIGEST_IMEDIATO em config.py) — abaixo
                 # disso, vai pra fila do digest diário sem mensagem
                 # individual (ver _enviar_digest_diario). Fila é salvar com
@@ -324,7 +357,7 @@ def ciclo_de_busca(perfil: Perfil):
                 #
                 # MEDIDO: vaga com Job.publicacao_antiga (publicado_em "há X
                 # meses/anos" — ver job.py) nunca vai pra notificação
-                # imediata, mesmo com relevância alta — score mede "bate com
+                # imediata, mesmo com match alto — score mede "bate com
                 # o que você procura", não "é recente". Site com pouco
                 # volume pra um termo deixa vaga de meses atrás na página
                 # visível (confirmado ao vivo: Sólides ordena por data, mas
@@ -347,7 +380,7 @@ def ciclo_de_busca(perfil: Perfil):
                     logger.info(f"[{perfil.nome}] Nova vaga: {vaga.titulo} - {vaga.empresa}")
                 else:
                     salvar_vaga(vaga, perfil_chave=perfil.chave, digest_pendente=True)
-                    motivo_digest = "vaga antiga" if vaga.publicacao_antiga else f"relevância {vaga.relevancia}/10"
+                    motivo_digest = "vaga antiga" if vaga.publicacao_antiga else f"match estimado {vaga.probabilidade_match}%"
                     logger.info(
                         f"[{perfil.nome}] Nova vaga (digest, {motivo_digest}): "
                         f"{vaga.titulo} - {vaga.empresa}"
@@ -359,6 +392,12 @@ def ciclo_de_busca(perfil: Perfil):
             for vaga in vagas_secundarias:
                 if ja_vista(vaga, perfil.chave):
                     continue
+
+                _atualizar_match_com_descricao(
+                    vaga,
+                    perfil.regras_eixo_secundario or perfil.regras,
+                    perfil.chave,
+                )
 
                 # Mesma regra de vaga antiga do loop acima.
                 if vaga.relevancia >= LIMIAR_DIGEST_IMEDIATO and not vaga.publicacao_antiga:
@@ -375,7 +414,7 @@ def ciclo_de_busca(perfil: Perfil):
                     )
                 else:
                     salvar_vaga(vaga, perfil_chave=perfil.chave, digest_pendente=True, exploratoria=True)
-                    motivo_digest = "vaga antiga" if vaga.publicacao_antiga else f"relevância {vaga.relevancia}/10"
+                    motivo_digest = "vaga antiga" if vaga.publicacao_antiga else f"match estimado {vaga.probabilidade_match}%"
                     logger.info(
                         f"[{perfil.nome}] Nova vaga exploratória (digest, {motivo_digest}): "
                         f"{vaga.titulo} - {vaga.empresa}"

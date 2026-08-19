@@ -164,13 +164,13 @@ CASOS_COMBINA_COM = [
     # (título vs. local) — cidade fora da lista aceita barra mesmo com
     # cargo batendo.
     ("cidade-fora-da-lista-barrada", "Analista de Dados", "Nova York", "Presencial", PERFIL_BR, False),
-    ("cargo-fora-do-escopo-barrado", "Vendedor Externo", "Recife, PE", "Presencial", PERFIL_BR, False),
-    ("cargo-forte-cidade-aceita-passa", "Analista de Dados Pleno", "Recife, PE", "Presencial", PERFIL_BR, True),
+    ("cargo-fora-do-escopo-barrado", "Vendedor Externo", "Brasília, DF", "Presencial", PERFIL_BR, False),
+    ("cargo-forte-cidade-aceita-passa", "Analista de Dados Pleno", "Brasília, DF", "Presencial", PERFIL_BR, True),
     # keywords_ambiguo (ex: "Business Analyst") só conta com qualificador
     # de dados junto no título — sozinho é ruído de outra área (RH,
     # finanças).
-    ("cargo-ambiguo-sem-qualificador-barrado", "Business Analyst", "Recife, PE", "Presencial", PERFIL_BR, False),
-    ("cargo-ambiguo-com-qualificador-passa", "Business Analyst com SQL", "Recife, PE", "Presencial", PERFIL_BR, True),
+    ("cargo-ambiguo-sem-qualificador-barrado", "Business Analyst", "Brasília, DF", "Presencial", PERFIL_BR, False),
+    ("cargo-ambiguo-com-qualificador-passa", "Business Analyst com SQL", "Brasília, DF", "Presencial", PERFIL_BR, True),
 ]
 
 

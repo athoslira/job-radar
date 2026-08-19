@@ -15,6 +15,8 @@ def _vaga() -> Job:
         site="Teste",
         modalidade="Presencial",
         relevancia=7,
+        descricao="Requisitos completos da vaga",
+        descricao_fonte="HTML",
     )
 
 
@@ -54,6 +56,54 @@ def test_feedback_atualiza_somente_o_perfil_correto(monkeypatch, tmp_path):
             "SELECT perfil, feedback FROM vagas_vistas"
         ).fetchall())
     assert feedbacks == {"dados_bi": None, "cx": "positivo"}
+
+
+def test_salva_evidencias_sem_persistir_descricao_completa(monkeypatch, tmp_path):
+    caminho = str(tmp_path / "jobs.db")
+    monkeypatch.setattr(db, "DB_PATH", caminho)
+    db.iniciar_db()
+
+    vaga = _vaga()
+    db.salvar_vaga(vaga, "dados_bi")
+
+    with sqlite3.connect(caminho) as conn:
+        colunas = {
+            linha[1] for linha in conn.execute("PRAGMA table_info(vagas_vistas)")
+        }
+        salvo = conn.execute(
+            "SELECT descricao_fonte, motivo_match FROM vagas_vistas"
+        ).fetchone()
+    assert "descricao" not in colunas
+    assert salvo == ("HTML", vaga.motivo)
+
+
+def test_feedback_calibra_so_com_amostra_minima_de_titulos_similares(
+    monkeypatch, tmp_path
+):
+    caminho = str(tmp_path / "jobs.db")
+    monkeypatch.setattr(db, "DB_PATH", caminho)
+    db.iniciar_db()
+
+    feedbacks = ["positivo", "positivo", "positivo", "negativo"]
+    for indice, feedback in enumerate(feedbacks):
+        vaga = Job(
+            titulo=f"Analista de Dados Power BI {indice}",
+            empresa=f"Empresa {indice}",
+            local="Brasília - DF",
+            link=f"https://example.com/historico-{indice}",
+            site="Teste",
+        )
+        db.salvar_vaga(vaga, "dados_bi")
+        db.definir_feedback(vaga.id, feedback, "dados_bi")
+
+    ajuste, amostra, taxa = db.obter_ajuste_match_feedback(
+        "Analista de Dados Júnior", "dados_bi"
+    )
+    assert (ajuste, amostra, taxa) == (1, 4, 0.75)
+
+    assert db.obter_ajuste_match_feedback(
+        "Customer Success Manager", "dados_bi"
+    ) == (0, 0, 0.0)
 
 
 def test_migra_banco_legado_sem_perder_historico(monkeypatch, tmp_path):

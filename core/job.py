@@ -4,6 +4,8 @@ import hashlib
 import re
 import unicodedata
 
+from core.match import MapaMatchCurriculo, calcular_match_curriculo
+
 
 def _normalizar(texto: str) -> str:
     """Minúsculo e sem acento, pra comparação não depender de site nenhum
@@ -489,6 +491,7 @@ _SIGLAS_UF_AMBIGUAS = {"al", "ma", "mt", "ms", "pa", "sc"}
 # e inventar regra por contagem de palavras arriscaria barrar "Recife PE"
 # ou "vaga em Natal". Preferir o falso positivo raro ao falso negativo.
 _UF_DA_CIDADE = {
+    "brasilia": "df",
     "campina grande": "pb",
     "joao pessoa": "pb",
     "recife": "pe",
@@ -896,6 +899,10 @@ class RegrasFiltro:
     # mercado hispanofalante-lusófono explicitamente. None = não checa
     # (BR não precisa — fonte já é 100% brasileira/portuguesa).
     idiomas_exigidos: list[str] | None = None
+    # Mapa profissional comprovado no currículo. Quando preenchido, o
+    # ranking deixa de ser genérico e estima aderência ao histórico do
+    # candidato. None preserva o score legado para perfis antigos.
+    mapa_match: MapaMatchCurriculo | None = None
 
 
 @dataclass
@@ -972,6 +979,10 @@ class Job:
     # escopo agora — string crua já é suficiente pra exibir na notificação e
     # é o que a fonte realmente disse. "" quando o site não expõe a data.
     publicado_em: str = ""
+    # Texto integral lido na página da vaga depois que o cartão passa pelo
+    # filtro inicial. HTML é preferido; OCR aparece só como fallback.
+    descricao: str = ""
+    descricao_fonte: str = "indisponível"
     # Modalidade (Remoto/Híbrido/Presencial) como campo PRÓPRIO, preenchido
     # pelo scraper na hora da extração. Antes vivia embutida dentro do texto
     # de `local` (ex: "São Paulo - SP (Remoto)") e era redetectada por
@@ -1004,6 +1015,17 @@ class Job:
     # relevancia — "" até lá. Só pra aparecer na notificação; não
     # influencia filtro nem score.
     motivo: str = ""
+
+    @property
+    def probabilidade_match(self) -> int:
+        """Percentual heurístico exibido no Telegram (não chance de oferta).
+
+        `relevancia` continua em 0–10 para preservar banco, digest e limiar
+        existentes. O percentual é a mesma escala em linguagem mais prática.
+        """
+        # Sem descrição completa/requisitos da vaga, 100% sugeriria uma
+        # certeza que os dados não sustentam. O teto visual fica em 95%.
+        return max(0, min(95, self.relevancia * 10))
 
     def __post_init__(self):
         """Sobrepõe modalidade="Remoto" quando o TÍTULO contradiz (Híbrido/
@@ -1256,11 +1278,13 @@ class Job:
         )
 
     def pontuar_relevancia(self, regras: RegrasFiltro) -> int:
-        """Score (1 a 10 na prática, ver MEDIDO abaixo) pra ORDENAR vagas
-        que já passaram combina_com() — não filtra nada, não muda quantas
-        vagas notificam. Soma simples de pontos por sinal, sem aprendizado
-        de máquina (conjunto pequeno, conhecido — não precisa de modelo).
+        """Score 0–10 para ordenar vagas já aprovadas pelo filtro.
 
+        Quando `regras.mapa_match` existe, usa a experiência comprovada no
+        currículo e devolve um match explicável. Sem mapa, preserva o score
+        legado abaixo. Em ambos os casos, não exclui vagas nem muda o volume.
+
+        Score legado:
         - Cargo no título: 3 se bateu keyword forte, 2 se bateu só o par
           ambíguo+qualificador, 0 se só bateu por ferramenta (sem cargo
           nenhum no título).
@@ -1282,6 +1306,19 @@ class Job:
           contrário.
         """
         av = self._avaliar(regras)
+
+        if regras.mapa_match is not None:
+            return calcular_match_curriculo(
+                mapa=regras.mapa_match,
+                titulo=self.titulo,
+                descricao=self.descricao,
+                senioridade=self.senioridade,
+                geografia_confirmada=not av.bate_remoto or av.mercado_confirmado,
+                vaga_global_em_ingles=self.site in {
+                    "LinkedIn Global",
+                    "We Work Remotely",
+                },
+            ).pontos
 
         if av.bate_forte:
             pontos_cargo = _PESO_CARGO_FORTE
@@ -1337,6 +1374,20 @@ class Job:
         MEDIDO no item 03: foi exatamente esse caminho que deixava passar
         vaga sem relação nenhuma com o mercado antes da correção)."""
         av = self._avaliar(regras)
+        if regras.mapa_match is not None:
+            resultado = calcular_match_curriculo(
+                mapa=regras.mapa_match,
+                titulo=self.titulo,
+                descricao=self.descricao,
+                senioridade=self.senioridade,
+                geografia_confirmada=not av.bate_remoto or av.mercado_confirmado,
+                vaga_global_em_ingles=self.site in {
+                    "LinkedIn Global",
+                    "We Work Remotely",
+                },
+            )
+            return " · ".join(resultado.sinais)
+
         if av.bate_forte:
             motivo = "Cargo forte"
         elif av.bate_ambiguo:

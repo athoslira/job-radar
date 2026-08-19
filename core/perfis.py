@@ -21,6 +21,8 @@ from dataclasses import dataclass, field
 from core.config import (
     KEYWORDS,
     KEYWORDS_CARGO_FORTE,
+    KEYWORDS_CARGO_INGLES,
+    TERMOS_BUSCA_GLOBAL_DADOS_BI,
     KEYWORDS_CARGO_AMBIGUO,
     QUALIFICADORES_DADOS,
     FERRAMENTAS_TITULO,
@@ -45,6 +47,8 @@ from core.config_intl import (
 )
 from core.config_cx import (
     KEYWORDS_CX,
+    KEYWORDS_CX_INGLES,
+    TERMOS_BUSCA_GLOBAL_CX,
     KEYWORDS_CARGO_FORTE_CX,
     KEYWORDS_CARGO_AMBIGUO_CX,
     QUALIFICADORES_CX,
@@ -52,6 +56,7 @@ from core.config_cx import (
     TERMOS_POR_CICLO_CX,
 )
 from core.job import RegrasFiltro
+from core.perfil_candidato import MAPA_MATCH_CX, MAPA_MATCH_DADOS_BI
 from scrapers.catho import CathoScraper
 from scrapers.geekhunter import GeekHunterScraper
 from scrapers.gupy import GupyScraper
@@ -112,6 +117,7 @@ _REGRAS_BR = RegrasFiltro(
     qualificadores_cargo=QUALIFICADORES_CARGO,
     cidades=CIDADES,
     mercados_remoto_aceitos=MERCADOS_REMOTO_ACEITOS,
+    mapa_match=MAPA_MATCH_DADOS_BI,
 )
 
 # Eixo secundário (Ibéria): mesma regra de cargo, cidade europeia em vez de
@@ -159,7 +165,7 @@ _REGRAS_BR_IBERIA = RegrasFiltro(
 # internacional, sem nada daquele perfil hardcoded. Sem medição própria
 # ainda pra essa combinação (fonte + termos em português) — FREQUENCIA_BAIXA
 # até medir rendimento real.
-_SCRAPERS_BR = [
+_SCRAPERS_BASE = [
     DefinicaoScraper(GupyScraper, FREQUENCIA_ALTA),        # ~2,6% de rendimento
     DefinicaoScraper(LinkedInScraper, FREQUENCIA_ALTA),     # ~8,5% — a melhor fonte de longe
     DefinicaoScraper(SolidesScraper, FREQUENCIA_ALTA),      # ~1,1%
@@ -220,6 +226,33 @@ _SCRAPERS_BR = [
     DefinicaoScraper(SeniorScraper, FREQUENCIA_BAIXA),      # 0,3%, mas 4s e cobre cidade
 ]
 
+
+def _scrapers_do_nicho(
+    keywords_titulo_global: list[str],
+    termos_busca_global: list[str],
+) -> list[DefinicaoScraper]:
+    """Configura a mesma grade de fontes para o vocabulário global do nicho."""
+    resultado = []
+    for definicao in _SCRAPERS_BASE:
+        kwargs = dict(definicao.kwargs_extras)
+        if definicao.classe is LinkedInScraper:
+            kwargs["keywords_titulo_global"] = keywords_titulo_global
+            kwargs["termos_busca_global"] = termos_busca_global
+        resultado.append(
+            DefinicaoScraper(definicao.classe, definicao.frequencia, kwargs)
+        )
+    return resultado
+
+
+_SCRAPERS_DADOS_BI = _scrapers_do_nicho(
+    KEYWORDS_CARGO_INGLES,
+    TERMOS_BUSCA_GLOBAL_DADOS_BI,
+)
+_SCRAPERS_CX = _scrapers_do_nicho(
+    KEYWORDS_CX_INGLES,
+    TERMOS_BUSCA_GLOBAL_CX,
+)
+
 PERFIL_DADOS_BI = Perfil(
     chave="dados_bi",
     nome="Dados/BI",
@@ -231,7 +264,7 @@ PERFIL_DADOS_BI = Perfil(
     eixo_secundario_rotulo="Ibéria",
     termos_busca=TERMOS_BUSCA,
     termos_por_ciclo=TERMOS_POR_CICLO,
-    definicao_scrapers=_SCRAPERS_BR,
+    definicao_scrapers=_SCRAPERS_DADOS_BI,
     max_scrapers_concorrentes=4,
 )
 
@@ -249,6 +282,7 @@ _REGRAS_CX = RegrasFiltro(
     qualificadores_cargo=[],
     cidades=CIDADES,
     mercados_remoto_aceitos=MERCADOS_REMOTO_ACEITOS,
+    mapa_match=MAPA_MATCH_CX,
 )
 
 PERFIL_CX = Perfil(
@@ -264,7 +298,7 @@ PERFIL_CX = Perfil(
     termos_por_ciclo=TERMOS_POR_CICLO_CX,
     # Os scrapers recebem os termos do perfil por parâmetro e podem ser
     # reaproveitados sem conter lógica específica de Dados/BI ou CX.
-    definicao_scrapers=_SCRAPERS_BR,
+    definicao_scrapers=_SCRAPERS_CX,
     max_scrapers_concorrentes=4,
 )
 

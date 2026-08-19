@@ -99,6 +99,36 @@ QUALIFICADORES_CX = [
 KEYWORDS_CX = KEYWORDS_CARGO_FORTE_CX + KEYWORDS_CARGO_AMBIGUO_CX
 
 
+# Subconjunto usado no eixo mundial. Títulos em português continuam sendo
+# buscados no Brasil; fora dele só entram anúncios com cargo em inglês.
+KEYWORDS_CX_INGLES = [
+    termo
+    for termo in KEYWORDS_CX
+    if any(
+        sinal in termo.lower()
+        for sinal in (
+            "customer success",
+            "customer experience",
+            "cx ",
+            "customer journey",
+            "voice of customer",
+            "account manager",
+            "onboarding analyst",
+            "onboarding specialist",
+            "implementation analyst",
+        )
+    )
+]
+
+TERMOS_BUSCA_GLOBAL_CX = [
+    "customer success",
+    "customer experience",
+    "customer journey",
+    "voice of customer",
+    "customer onboarding",
+]
+
+
 # Ferramentas aparecem só na busca, nunca aprovam uma vaga sozinhas.
 # Assim "Zendesk Administrator" ou "Salesforce Developer" não entra no
 # radar, enquanto uma descrição de "Analista de Customer Success" que use

@@ -19,12 +19,9 @@ jobs:
         with:
           python-version: "3.11"
 
-      # Sem "playwright install" de propósito: os testes da camada de
-      # filtro (tests/test_filtro.py) não abrem browser nenhum — só
-      # testam função pura (extrair_escopo_remoto, Job.combina_com).
-      # Importar os módulos dos scrapers funciona sem o binário do
-      # navegador (só falha se tentar de fato LANÇAR um browser), então
-      # o passo de download fica reservado só pro workflow de scraping.
+      # Sem browser/Tesseract de propósito: os testes validam extração,
+      # cache, bloqueios e OCR por funções puras/dublês, sem lançar processo
+      # externo. Os binários ficam exclusivos do workflow de produção.
       - name: Instalar dependências
         run: pip install -r requirements.txt
 

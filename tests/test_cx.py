@@ -10,7 +10,7 @@ def _vaga(titulo: str) -> Job:
     return Job(
         titulo=titulo,
         empresa="Empresa",
-        local="Recife - PE",
+        local="Brasília - DF",
         link=f"https://example.com/{titulo}",
         site="Teste",
         modalidade="Presencial",

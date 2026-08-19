@@ -57,18 +57,15 @@ def enviar_mensagem(texto: str, reply_markup: dict | None = None) -> bool:
         return False
 
 
-def _linha_relevancia(pontos: int) -> str:
-    """Renderiza Job.relevancia (0-10, ver pontuar_relevancia em job.py) como
-    estrelas — 10 pontos vira 5 estrelas, arredondado (6/10 vira 3, não 2.5).
-    Não é filtro, só destaque visual pra priorizar leitura entre as vagas
-    aprovadas do ciclo (item 07 da auditoria: com ~320 vaga/dia, tudo
-    chegava com o mesmo destaque)."""
+def _linha_match(pontos: int) -> str:
+    """Renderiza o match estimado do currículo como percentual e estrelas."""
     # (pontos + 1) // 2 em vez de round(pontos / 2): round() do Python
     # arredonda .5 pro par mais próximo (5/10 vira 2 estrelas, 7/10 vira 4)
     # — inconsistente e contraintuitivo pra quem só olha o emoji. Assim
     # sempre arredonda .5 pra cima (5/10 = 3, 7/10 = 4, sempre igual).
     cheias = (pontos + 1) // 2
-    return "⭐" * cheias + "☆" * (5 - cheias) + f" ({pontos}/10)"
+    percentual = max(0, min(95, pontos * 10))
+    return "⭐" * cheias + "☆" * (5 - cheias) + f" ({percentual}%)"
 
 
 def _teclado_feedback(job_id: str, perfil_chave: str) -> dict:
@@ -102,18 +99,21 @@ def _linha_aviso_antiga(job) -> str:
 
 
 def notificar_vaga(job, perfil_chave: str, perfil_nome: str) -> bool:
-    # TODO (Fase 3): incluir aqui a % de compatibilidade com o currículo,
-    # calculada por IA, quando essa etapa for implementada.
-    #
     # Linha de publicação só aparece quando a fonte expõe isso (nem toda
     # expõe — ver Job.publicado_em / extrair_data_publicacao em job.py).
     linha_publicacao = f"<b>Publicada:</b> {job.publicado_em}\n" if job.publicado_em else ""
     linha_modalidade = f"<b>Modalidade:</b> {job.modalidade}\n" if job.modalidade else ""
+    linha_leitura = (
+        f"<b>Leitura:</b> descrição completa via {job.descricao_fonte}\n"
+        if job.descricao else
+        "<b>Leitura:</b> somente cartão da vaga\n"
+    )
     texto = (
         f"🚨 <b>Nova vaga — {perfil_nome}</b>\n\n"
         f"{_linha_aviso_antiga(job)}"
-        f"<b>Relevância:</b> {_linha_relevancia(job.relevancia)}\n"
-        f"<b>Motivo:</b> {job.motivo}\n"
+        f"<b>Match estimado:</b> {_linha_match(job.relevancia)}\n"
+        f"<b>Sinais do currículo:</b> {job.motivo}\n"
+        f"{linha_leitura}"
         f"<b>Empresa:</b> {job.empresa}\n"
         f"<b>Cargo:</b> {job.titulo}\n"
         f"<b>Nível:</b> {job.senioridade}\n"
@@ -141,11 +141,17 @@ def notificar_vaga_exploratoria(job, perfil_chave: str, perfil_nome: str) -> boo
     então movida pra cá em vez de duplicada.
     """
     linha_modalidade = f"<b>Modalidade:</b> {job.modalidade}\n" if job.modalidade else ""
+    linha_leitura = (
+        f"<b>Leitura:</b> descrição completa via {job.descricao_fonte}\n"
+        if job.descricao else
+        "<b>Leitura:</b> somente cartão da vaga\n"
+    )
     texto = (
         f"🧭 <b>Vaga exploratória — {perfil_nome} (Portugal/Espanha)</b>\n\n"
         f"{_linha_aviso_antiga(job)}"
-        f"<b>Relevância:</b> {_linha_relevancia(job.relevancia)}\n"
-        f"<b>Motivo:</b> {job.motivo}\n"
+        f"<b>Match estimado:</b> {_linha_match(job.relevancia)}\n"
+        f"<b>Sinais do currículo:</b> {job.motivo}\n"
+        f"{linha_leitura}"
         f"<b>Empresa:</b> {job.empresa}\n"
         f"<b>Cargo:</b> {job.titulo}\n"
         f"<b>Nível:</b> {job.senioridade}\n"
@@ -176,7 +182,7 @@ def montar_digest(vagas: list[tuple], rotulo_perfil: str) -> list[str]:
     config.py), um dia cheio passa fácil dos 4096 caracteres do Telegram
     — quebra em partes numeradas em vez de estourar/truncar."""
     linhas = [
-        f'{"🧭" if exploratoria else "•"} {_linha_relevancia(relevancia or 0)} '
+        f'{"🧭" if exploratoria else "•"} {_linha_match(relevancia or 0)} '
         f'<a href="{link}">{titulo}</a> — {empresa}'
         for titulo, empresa, link, relevancia, exploratoria in vagas
     ]

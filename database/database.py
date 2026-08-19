@@ -1,10 +1,32 @@
 
 import sqlite3
 import os
+import re
 from contextlib import contextmanager
 
 from core.config import DB_PATH
 from core.job import _normalizar
+
+
+_STOPWORDS_TITULO = {
+    "a", "an", "and", "da", "de", "do", "em", "e", "for", "of", "the",
+    "para", "com", "remoto", "remote", "hibrido", "hybrid",
+}
+
+
+def _tokens_titulo(titulo: str) -> set[str]:
+    return {
+        token for token in re.findall(r"[a-z0-9]+", _normalizar(titulo))
+        if len(token) >= 2 and token not in _STOPWORDS_TITULO
+    }
+
+
+def _titulos_sao_similares(atual: str, historico: str) -> bool:
+    a, b = _tokens_titulo(atual), _tokens_titulo(historico)
+    if not a or not b:
+        return False
+    intersecao = len(a & b)
+    return intersecao >= 2 and intersecao / min(len(a), len(b)) >= 0.6
 
 
 def _garantir_pasta():
@@ -71,6 +93,15 @@ def _garantir_coluna_modalidade(conn):
     colunas = [linha[1] for linha in conn.execute("PRAGMA table_info(vagas_vistas)")]
     if "modalidade" not in colunas:
         conn.execute("ALTER TABLE vagas_vistas ADD COLUMN modalidade TEXT")
+
+
+def _garantir_colunas_analise_match(conn):
+    """Persiste evidências pequenas sem inflar o Git com descrições inteiras."""
+    colunas = [linha[1] for linha in conn.execute("PRAGMA table_info(vagas_vistas)")]
+    if "descricao_fonte" not in colunas:
+        conn.execute("ALTER TABLE vagas_vistas ADD COLUMN descricao_fonte TEXT")
+    if "motivo_match" not in colunas:
+        conn.execute("ALTER TABLE vagas_vistas ADD COLUMN motivo_match TEXT")
 
 
 def _garantir_colunas_digest(conn):
@@ -157,6 +188,8 @@ def _criar_tabela_vagas(conn):
             chave_secundaria TEXT,
             publicado_em TEXT,
             modalidade TEXT,
+            descricao_fonte TEXT,
+            motivo_match TEXT,
             relevancia INTEGER,
             digest_pendente INTEGER,
             exploratoria INTEGER,
@@ -197,7 +230,8 @@ def _migrar_identidade_por_perfil(conn):
         INSERT INTO vagas_vistas (
             id, perfil, titulo, empresa, local, link, site, encontrada_em,
             chave_secundaria, publicado_em, modalidade, relevancia,
-            digest_pendente, exploratoria, situacao, feedback
+            descricao_fonte, motivo_match, digest_pendente, exploratoria,
+            situacao, feedback
         )
         SELECT
             id,
@@ -208,7 +242,8 @@ def _migrar_identidade_por_perfil(conn):
             END,
             titulo, empresa, local, link, site, encontrada_em,
             chave_secundaria, publicado_em, modalidade, relevancia,
-            digest_pendente, exploratoria, situacao, feedback
+            descricao_fonte, motivo_match, digest_pendente, exploratoria,
+            situacao, feedback
         FROM vagas_vistas_legado
     """)
 
@@ -239,6 +274,7 @@ def iniciar_db():
         _garantir_coluna_chave_secundaria(conn)
         _garantir_coluna_publicado_em(conn)
         _garantir_coluna_modalidade(conn)
+        _garantir_colunas_analise_match(conn)
         _garantir_colunas_digest(conn)
         _garantir_coluna_situacao(conn)
         _garantir_coluna_feedback(conn)
@@ -328,13 +364,15 @@ def salvar_vaga(job, perfil_chave: str, digest_pendente: bool = False, explorato
             """
             INSERT OR IGNORE INTO vagas_vistas
                 (id, titulo, empresa, local, link, site, chave_secundaria, publicado_em,
-                 modalidade, relevancia, perfil, digest_pendente, exploratoria, situacao)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 modalidade, descricao_fonte, motivo_match, relevancia, perfil,
+                 digest_pendente, exploratoria, situacao)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 job.id, job.titulo, job.empresa, job.local, job.link, job.site,
                 job.chave_secundaria, job.publicado_em, job.modalidade,
-                job.relevancia, perfil_chave, int(digest_pendente), int(exploratoria), "nova",
+                job.descricao_fonte, job.motivo, job.relevancia, perfil_chave,
+                int(digest_pendente), int(exploratoria), "nova",
             ),
         )
 
@@ -372,6 +410,38 @@ def definir_feedback(job_id: str, feedback: str, perfil_chave: str | None = None
                 "UPDATE vagas_vistas SET feedback = ? WHERE perfil = ? AND id = ?",
                 (feedback, perfil_chave, job_id),
             )
+
+
+def obter_ajuste_match_feedback(
+    titulo: str,
+    perfil_chave: str,
+) -> tuple[int, int, float]:
+    """Aprende com 👍/👎 de títulos similares, sem ajustar com pouca amostra.
+
+    Retorna (ajuste, amostra, taxa_positiva). São necessários ao menos três
+    feedbacks similares; >=75% positivos soma 1 ponto e <=25% retira 1.
+    Entre esses limites não altera o score.
+    """
+    with _conectar() as conn:
+        linhas = conn.execute(
+            "SELECT titulo, feedback FROM vagas_vistas "
+            "WHERE perfil = ? AND feedback IN ('positivo', 'negativo')",
+            (perfil_chave,),
+        ).fetchall()
+
+    similares = [
+        feedback for titulo_historico, feedback in linhas
+        if _titulos_sao_similares(titulo, titulo_historico or "")
+    ]
+    amostra = len(similares)
+    if amostra < 3:
+        return 0, amostra, 0.0
+    taxa = similares.count("positivo") / amostra
+    if taxa >= 0.75:
+        return 1, amostra, taxa
+    if taxa <= 0.25:
+        return -1, amostra, taxa
+    return 0, amostra, taxa
 
 
 def obter_vagas_pendentes_digest(perfil_chave: str) -> list[tuple]:

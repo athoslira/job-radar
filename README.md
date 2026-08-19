@@ -9,8 +9,8 @@
 ![Playwright](https://img.shields.io/badge/Playwright-Scraping-2EAD33?style=for-the-badge&logo=playwright&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-Banco%20versionado-07405E?style=for-the-badge&logo=sqlite&logoColor=white)
 ![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-Cron-2088FF?style=for-the-badge&logo=githubactions&logoColor=white)
-![Tests](https://img.shields.io/badge/testes-73%20passing-success?style=for-the-badge)
-![Status](https://img.shields.io/badge/status-em%20produção-success?style=for-the-badge)
+![Tests](https://img.shields.io/badge/testes-346%20passing-success?style=for-the-badge)
+![Status](https://img.shields.io/badge/status-aguardando%20Telegram-yellow?style=for-the-badge)
 
 **Autora:** Liliam Kezia Oliveira Souza
 
@@ -20,7 +20,7 @@
 
 ## 💎 Proposta de valor
 
-> O **JobRadar** monitora continuamente dois nichos independentes — **Dados/BI** e **CX** —, identifica cada notificação no mesmo bot do Telegram e mantém deduplicação, digest e feedback separados por perfil. Ele varre as fontes a cada **3 horas**, sem servidor próprio.
+> O **JobRadar** monitora continuamente dois nichos independentes — **Dados/BI** e **CX** —, identifica cada notificação no mesmo bot do Telegram e mantém deduplicação, digest e feedback separados por perfil. Em Brasília aceita vagas presenciais, híbridas e remotas; no restante do Brasil, apenas remotas; no exterior, apenas 100% remotas em inglês.
 
 ## 📄 Resumo executivo
 
@@ -30,7 +30,7 @@ Entre 07 e 15 de agosto, o sistema já processou **1.052 vagas únicas**, sem in
 |---|---|
 | 📊 Vagas processadas (deduplicadas) | **1.052** |
 | 🔗 Concentração numa única fonte (LinkedIn) | **89,5%** |
-| 🧪 Testes automatizados (CI a cada push) | **73** |
+| 🧪 Testes automatizados (CI a cada push) | **346** |
 | 🌎 Fontes monitoradas em paralelo | **8** |
 | ⏱️ Frequência de checagem | **a cada 3h** |
 | 💰 Custo de infraestrutura | **R$ 0** |
@@ -43,7 +43,7 @@ A concentração em LinkedIn é um risco medido, não ignorado: o endpoint usado
 
 <!-- ![Notificação no Telegram](assets/screenshots/notificacao.png) -->
 
-Vaga de alta relevância chega na hora, com motivo da aprovação, nível e link. O resto do dia entra num resumo único, ranqueado — sem virar spam.
+Vaga com match alto chega na hora, com percentual estimado, sinais do currículo, nível e link. O resto do dia entra num resumo único, ranqueado — sem virar spam.
 
 ---
 
@@ -52,7 +52,7 @@ Vaga de alta relevância chega na hora, com motivo da aprovação, nível e link
 - [Como funciona (pipeline)](#-como-funciona-pipeline)
 - [Arquitetura técnica](#%EF%B8%8F-arquitetura-técnica)
 - [Estrutura do repositório](#-estrutura-do-repositório)
-- [Como rodar](#-como-rodar)
+- [Como ativar](#-como-ativar-no-github-actions)
 - [Testes](#-testes)
 
 ---
@@ -62,30 +62,39 @@ Vaga de alta relevância chega na hora, com motivo da aprovação, nível e link
 | Etapa | O que faz |
 |---|---|
 | **Busca** | Varre as fontes em paralelo, com rodízio de termos pra controlar custo por ciclo |
-| **Filtra** | Cargo (forte / ambíguo + qualificador / ferramenta + cargo), cidade ou mercado remoto, idioma |
-| **Pontua** | Score 0–10 por vaga: cargo, ferramenta, senioridade, mercado, idioma — soma de sinais, sem IA |
+| **Filtra** | Brasília em qualquer modalidade; Brasil somente remoto fora do DF; exterior somente remoto em inglês |
+| **Lê a vaga** | Abre apenas vagas novas aprovadas, extrai a descrição via HTML e usa OCR quando necessário |
+| **Pontua** | Match estimado de até 95%, com mapas separados do currículo para Dados/BI e CX |
 | **Deduplica** | Por perfil, link e empresa+título, sem deixar um nicho apagar o outro |
-| **Notifica** | Alta relevância na hora; o resto num resumo diário ranqueado, melhor vaga no topo |
-| **Aprende** | Botão 👍/👎 em cada notificação — feedback vira dado pra medir precisão por fonte e por semana |
+| **Notifica** | Match alto na hora; o resto num resumo diário ranqueado, melhor vaga no topo |
+| **Aprende** | Após 3 avaliações similares, 👍/👎 calibra o match sem reagir a uma opinião isolada |
 
 ## 🏗️ Arquitetura técnica
 
 - **Filtro em 3 níveis de confiança:** cargo inequívoco passa sozinho; cargo ambíguo (ex: "Business Analyst") só conta com qualificador de dados junto no título; ferramenta (ex: "Power BI") só conta com palavra de cargo junto — nada aprova por palavra-chave solta.
-- **Score de relevância sem ML:** 5 sinais conhecidos (cargo, ferramenta, senioridade, mercado, idioma), pesos calibrados contra o histórico real do banco, não chutados.
+- **Leitura completa otimizada:** um Chromium compartilhado lê o HTML da descrição apenas depois do filtro inicial. O mesmo link é cacheado entre Dados/BI e CX. OCR em português/inglês só entra quando o texto acessível é insuficiente e nunca é usado para contornar CAPTCHA ou login.
+- **Match baseado no currículo:** experiência direta e transferível, competências, ferramentas obrigatórias, anos exigidos, senioridade, graduação, geografia e inglês fluente formam uma nota explicável.
+- **Calibração progressiva:** com no mínimo três vagas de título semelhante, feedback positivo ≥75% acrescenta um ponto e ≤25% retira um; amostras pequenas ou inconclusivas não alteram o ranking.
+- **Sem falsa precisão:** o percentual não representa chance estatística de contratação e mantém teto de 95%. A notificação informa se analisou HTML, OCR ou apenas o cartão, além dos pontos fortes e lacunas encontrados.
 - **Um bot, dois nichos:** Dados/BI e CX compartilham chat e banco, mas mantêm estado e feedback separados pelo perfil.
+- **Política geográfica única:** Brasília aceita presencial/híbrido/remoto; o restante do Brasil só remoto; o eixo mundial usa busca remota e títulos em inglês.
 - **Zero infraestrutura:** GitHub Actions como motor de cron, SQLite como banco — versionado no próprio Git, o histórico de vagas já vistas *é* o commit.
 - **Resiliente:** nunca marca vaga como "vista" sem confirmar que a notificação saiu; alerta automático se metade das fontes falhar num ciclo; heartbeat diário confirmando que o robô ainda está de pé.
-- **73 testes automatizados em CI:** cada caso documenta um bug real já corrigido nesta base — não é cenário hipotético, é regressão registrada.
+- **Execução somente no GitHub Actions:** Chromium, Tesseract e os modelos de idioma são instalados pelo workflow; não existe serviço local ou VPS para configurar.
+- **346 testes automatizados em CI:** incluindo localização, descrição completa, cache, bloqueios, feedback, mapas de currículo e migração do banco.
 
 ## 📁 Estrutura do repositório
 
-obradar/
+jobradar/
 ├── README.md
 ├── requirements.txt
 ├── main.py ← motor único: um ciclo de busca por perfil
 ├── core/perfis.py ← Dados/BI e CX (dados, não lógica duplicada)
+├── core/perfil_candidato.py ← experiências e skills comprovadas por nicho
+├── core/match.py ← cálculo explicável do match estimado
+├── core/descricao_vaga.py ← Playwright compartilhado + fallback OCR seguro
 ├── core/config.py / core/config_cx.py ← cargos e termos de cada nicho
-├── job.py ← Job, filtro, score de relevância
+├── core/job.py ← Job, filtro e integração do match
 ├── relatorio_precisao.py ← aprovadas/notificadas por fonte e por semana
 ├── database/
 │ └── database.py ← SQLite: dedup, fila de digest, metadados
@@ -94,29 +103,20 @@ obradar/
 ├── scrapers/ ← um módulo por fonte (LinkedIn, Gupy, Indeed...)
 ├── utils/
 │ └── filtro.py
-├── tests/ ← 73 casos, roda em CI a cada push
+├── tests/ ← 346 casos, roda em CI a cada push
 ├── data/
 │ └── jobs.db ← banco versionado (histórico de dedup)
 └── .github/workflows/
 ├── jobradar.yml ← cron de produção (a cada 3h)
 └── testes.yml ← CI
 
-## 💻 Como rodar
+## 💻 Como ativar no GitHub Actions
 
-```bash
-git clone <repo>
-cd jobradar
-python -m venv venv && venv\Scripts\activate   # Linux/Mac: source venv/bin/activate
-pip install -r requirements.txt
-python -m playwright install chromium
-```
-
-Configure `TELEGRAM_BOT_TOKEN` e `TELEGRAM_CHAT_ID` seguindo o
-[guia do Telegram](CONFIGURAR_TELEGRAM.md), depois:
-
-```bash
-python main.py --perfil dados_bi cx --once
-```
+Depois que esta versão estiver no seu repositório, configure somente
+`TELEGRAM_BOT_TOKEN` e `TELEGRAM_CHAT_ID` seguindo o
+[guia do Telegram](CONFIGURAR_TELEGRAM.md). O workflow `jobradar.yml` instala
+automaticamente Python, Chromium, Tesseract e os idiomas português/inglês,
+e executa os dois perfis a cada três horas.
 
 ## 🧪 Testes
 
@@ -124,7 +124,7 @@ python main.py --perfil dados_bi cx --once
 pytest tests/ -v
 ```
 
-Casos parametrizados cobrem os filtros dos dois nichos, a migração do banco, o callback do Telegram e o relatório de precisão — todos rodando automaticamente a cada push via GitHub Actions.
+Casos parametrizados cobrem filtros, leitura da descrição, ranking, migração do banco, callback do Telegram e relatório de precisão — todos rodando automaticamente a cada push via GitHub Actions.
 
 ---
 

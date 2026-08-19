@@ -98,6 +98,35 @@ QUALIFICADORES_CARGO = [
 
 KEYWORDS = KEYWORDS_CARGO_FORTE + KEYWORDS_CARGO_AMBIGUO
 
+# Títulos em inglês aceitos no eixo mundial. A busca internacional usa
+# somente estes cargos como sinal de que o anúncio e o ambiente de trabalho
+# são orientados a inglês; títulos em português/espanhol continuam válidos
+# no Brasil, mas não entram pela busca global.
+KEYWORDS_CARGO_INGLES = [
+    "Data Analyst",
+    "Business Intelligence Analyst",
+    "BI Analyst",
+    "Reporting Analyst",
+    "Insights Analyst",
+    "Data Insights Analyst",
+    "MIS Analyst",
+    "Data Specialist",
+    "Data Quality Analyst",
+    "Data Intelligence Analyst",
+    "BI & Analytics Analyst",
+    "Analytics Specialist",
+    "Business Analyst",
+    "Business Analytics",
+]
+
+TERMOS_BUSCA_GLOBAL_DADOS_BI = [
+    "data analyst",
+    "business intelligence analyst",
+    "bi analyst",
+    "reporting analyst",
+    "data insights analyst",
+]
+
 # Termos de busca enviados a cada site. Ficam separados das KEYWORDS de
 # propósito: TERMOS_BUSCA é a rede ampla (o que é pesquisado em cada site,
 # incluindo termos de ferramenta/stack pra achar vaga com título atípico),
@@ -154,15 +183,13 @@ TERMOS_BUSCA = TERMOS_CARGO + TERMOS_FERRAMENTA
 # quantos ciclos até cobrir tudo de novo, não o custo de cada ciclo.
 TERMOS_POR_CICLO = 10
 
-# Onde vaga HIBRIDA ou PRESENCIAL e aceita (mais "Remoto", que nao e
-# cidade e sim a porta de entrada da regra de modalidade remota — ver
-# _FLAGS_REMOTO em job.py). Vaga hibrida/presencial fora desta lista e
-# rejeitada; e uma whitelist, nao uma preferencia de ordenacao.
+# Política geográfica dos dois nichos:
+# - Brasília/DF: presencial, híbrida ou remota;
+# - restante do Brasil: somente remoto;
+# - exterior: somente remoto, em fonte/busca global de língua inglesa.
 #
-# Lista revisada contra o requisito escrito pela usuaria: as seis cidades
-# obrigatorias sao Campina Grande, Joao Pessoa, Recife, Natal, Caruaru e
-# Manaus. Maceio e Aracaju ficam por decisao explicita dela (interessam,
-# mesmo fora do requisito minimo).
+# Esta lista controla apenas onde presencial/híbrido pode passar. "Remoto"
+# é a porta de entrada da regra de modalidade, não uma cidade.
 #
 # MEDIDO: a lista anterior era "Nordeste", nao "as cidades que interessam",
 # e divergia do requisito nos dois sentidos ao mesmo tempo:
@@ -180,16 +207,7 @@ TERMOS_POR_CICLO = 10
 # para 8 — menos requisicao por ciclo E cobrindo Manaus, que faltava.
 CIDADES = [
     "Remoto",
-    # As seis do requisito
-    "Campina Grande",
-    "João Pessoa",
-    "Recife",
-    "Natal",
-    "Caruaru",
-    "Manaus",
-    # Mantidas por decisao da usuaria, alem do requisito minimo
-    "Maceió",
-    "Aracaju",
+    "Brasília",
 ]
 
 # MEDIDO: "Data Analyst @ Lisboa" e "Analista de Datos @ Madrid" reprovavam
@@ -237,17 +255,11 @@ ATIVAR_EIXO_IBERICO_BR = False
 # porque o usuário mora aqui e vaga local de verdade interessa.
 LOCATIONS_LINKEDIN = ["Brasil"]
 
-# Mercados adicionais: só busca REMOTA (f_WT=2) — vaga presencial/híbrida
-# num país onde o usuário não mora não serve, então nem faz sentido gastar
-# a passada nacional ali (era puro desperdício: Argentina/Chile já rodavam
-# as duas passadas antes, mas a nacional nunca batia em CIDADES mesmo,
-# que é só cidade brasileira). Espanhol ou português — mesmo critério do
-# pipeline internacional. Lista reaproveita exatamente os países já usados
-# e testados ao vivo no endpoint do LinkedIn em config_intl.py
-# (LOCATIONS_INTL) — evita arriscar nome de país nunca testado (grafia
-# errada ou região que o LinkedIn não resolve como location de verdade,
-# como já visto com "LATAM"/"Latin America").
-LOCATIONS_LINKEDIN_REMOTO_APENAS = ["Argentina", "Chile", "México", "Colômbia", "Espanha", "Portugal"]
+# Eixo mundial: somente a passada remota do LinkedIn. O scraper aplica
+# também uma allowlist de títulos em inglês por nicho e marca o local do
+# card como escopo indefinido, porque na busca mundial ele representa com
+# frequência a sede da empresa, não o país permitido para candidatura.
+LOCATIONS_LINKEDIN_REMOTO_APENAS = ["Worldwide"]
 
 # MEDIDO: a passada nacional acima (location="Brasil") varre o país inteiro
 # e só sobra o que bate em CIDADES depois do filtro — pra termo concorrido
@@ -282,7 +294,7 @@ LOCATIONS_LINKEDIN_CIDADES_PRESENCIAL = [c for c in CIDADES if c != "Remoto"]
 # quando o texto disser isso literalmente (guarda-chuva de verdade, não
 # substituto de nome de país). Portugal e Espanha entraram nominalmente
 # pelo mesmo motivo, desde antes.
-MERCADOS_REMOTO_ACEITOS = ["Brasil", "LATAM", "Argentina", "Chile", "México", "Colômbia", "Portugal", "Espanha"]
+MERCADOS_REMOTO_ACEITOS = ["Brasil", "LATAM"]
 
 INTERVALO_MINUTOS = int(os.getenv("INTERVALO_MINUTOS", 180))
 

@@ -7,11 +7,9 @@ Manaus, sobravam quatro cidades fora da regra) sem que nenhum dos 76
 testes existentes percebesse.
 
 Regra, resumida:
-  BRASIL   -> remoto de qualquer lugar do pais;
-              hibrido/presencial SO nas cidades de CIDADES.
-  EXTERIOR -> SO remoto, e so em mercado de lingua portuguesa/espanhola.
-              Nunca hibrido, nunca presencial, nunca mercado de lingua
-              inglesa.
+  BRASÍLIA -> presencial, híbrido ou remoto;
+  BRASIL   -> fora de Brasília, somente 100% remoto;
+  EXTERIOR -> somente 100% remoto, em busca/fonte de língua inglesa.
 """
 
 import pytest
@@ -28,28 +26,8 @@ def _vaga(titulo, local, modalidade):
     )
 
 
-# As seis cidades obrigatorias do requisito, mais as duas mantidas por
-# decisao explicita da usuaria (Maceio e Aracaju).
-# Cidade com a UF DE VERDADE de cada uma.
-#
-# Antes era so a lista de nomes, e o teste montava o local como
-# f"{cidade} - PB" pra todas — o que da "Maceio - PB", "Natal - PB",
-# "Manaus - PB". Geograficamente errado, e passava porque o filtro so
-# olhava o nome e ignorava a UF. Quando a checagem de UF entrou (ver
-# _UF_DA_CIDADE em core/job.py), esses 12 casos falharam — corretamente.
-#
-# Fica registrado porque e um teste que dava verde afirmando algo falso:
-# passar nao provava que a cidade era aceita, provava que a UF era
-# ignorada.
 CIDADES_ACEITAS = [
-    ("Campina Grande", "PB"),
-    ("João Pessoa", "PB"),
-    ("Recife", "PE"),
-    ("Natal", "RN"),
-    ("Caruaru", "PE"),
-    ("Manaus", "AM"),
-    ("Maceió", "AL"),
-    ("Aracaju", "SE"),
+    ("Brasília", "DF"),
 ]
 
 
@@ -65,11 +43,8 @@ def test_br_hibrido_e_presencial_nas_cidades_aceitas(cidade, uf, modalidade):
 # Variacoes de escrita que as fontes realmente usam -- separador, acento e
 # caixa nao podem mudar o resultado.
 @pytest.mark.parametrize("local", [
-    "Campina Grande", "Campina Grande - PB", "Campina Grande, PB",
-    "Campina Grande/PB", "CAMPINA GRANDE - PB", "campina grande, pb",
-    "João Pessoa - PB", "Joao Pessoa - PB",
-    "Manaus - AM", "Manaus, AM", "Manaus/AM",
-    "Recife - PE", "Caruaru, PE", "Natal/RN",
+    "Brasília", "Brasília - DF", "Brasília, DF", "Brasília/DF",
+    "BRASÍLIA - DF", "brasilia, df",
 ])
 def test_br_variacoes_de_escrita_da_cidade(local):
     assert _vaga("Analista de Dados", local, "Híbrido").combina_com(PERFIL_BR.regras)
@@ -78,7 +53,7 @@ def test_br_variacoes_de_escrita_da_cidade(local):
 @pytest.mark.parametrize("modalidade", ["Híbrido", "Presencial"])
 @pytest.mark.parametrize("local", [
     "São Paulo - SP", "Belo Horizonte, MG", "Salvador - BA",
-    "Rio de Janeiro, RJ", "Curitiba - PR", "Brasília, DF",
+    "Rio de Janeiro, RJ", "Curitiba - PR", "Recife - PE",
     "Fortaleza - CE", "Porto Alegre - RS",
     # Estavam em CIDADES por engano e aceitavam hibrida/presencial
     # fora da regra -- ver MEDIDO em config.py.
@@ -167,44 +142,29 @@ def test_intl_remoto_sem_mercado_declarado_exige_idioma_no_titulo():
     ("Engenheiro de Dados", False),
 ])
 def test_cargo_no_titulo(titulo, esperado):
-    assert _vaga(titulo, "Recife - PE", "Presencial").combina_com(PERFIL_BR.regras) is esperado
+    assert _vaga(titulo, "Brasília - DF", "Presencial").combina_com(PERFIL_BR.regras) is esperado
 
 
 # ------------------------- CIDADE DE NOME PARECIDO, ESTADO DIFERENTE
 
 @pytest.mark.parametrize("local", [
-    # MEDIDO numa fonte real: "CAMPINA GRANDE DO SUL - PR" era aceita como
-    # se fosse Campina Grande/PB. Sao cidades diferentes, a 2.500 km.
-    "Campina Grande do Sul - PR",
-    "CAMPINA GRANDE DO SUL - PR",
-    "Campina Grande do Sul, PR",
-    "Campina Grande do Sul/PR",
-    # Mesmo caso, outra cidade da lista.
-    "Natal da Serra - MG",
-    # E o inverso: cidade certa, UF errada, ainda e outro lugar.
-    "Recife - SP",
-    "Manaus - PR",
+    "Brasília de Minas - MG",
+    "BRASÍLIA DE MINAS - MG",
+    "Brasília - MG",
 ])
 def test_cidade_de_nome_parecido_em_outro_estado_e_rejeitada(local):
     assert not _vaga("Analista de Dados", local, "Presencial").combina_com(PERFIL_BR.regras)
 
 
 @pytest.mark.parametrize("local", [
-    "Campina Grande - PB", "CAMPINA GRANDE - PB", "Campina Grande, PB",
-    "Campina Grande/PB", "Natal - RN", "Recife - PE", "Recife, PE",
-    "Manaus - AM", "Caruaru - PE", "Joao Pessoa - PB", "Maceio - AL",
-    "Aracaju - SE",
+    "Brasília - DF", "BRASÍLIA - DF", "Brasília, DF", "Brasilia/DF",
 ])
 def test_cidade_certa_com_a_uf_certa_continua_passando(local):
     assert _vaga("Analista de Dados", local, "Presencial").combina_com(PERFIL_BR.regras)
 
 
 @pytest.mark.parametrize("local", [
-    # Sem UF nenhuma nao ha o que comparar: continua passando, de proposito.
-    # Barrar aqui exigiria adivinhar por contagem de palavras, e isso
-    # derrubaria "vaga em Recife" e "Natal" sozinhos, que sao validos.
-    "Recife", "Natal", "Manaus", "Campina Grande",
-    "Vaga em Recife", "Recife, Pernambuco, Brasil",
+    "Brasília", "Brasilia", "Vaga em Brasília",
 ])
 def test_sem_uf_declarada_a_cidade_continua_valendo(local):
     assert _vaga("Analista de Dados", local, "Presencial").combina_com(PERFIL_BR.regras)
