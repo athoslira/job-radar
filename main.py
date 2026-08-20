@@ -38,9 +38,37 @@ def _atualizar_match_com_descricao(
     vaga: Job,
     regras: RegrasFiltro,
     perfil_chave: str,
-):
-    """Lê requisitos da vaga e recalcula o match antes de notificar/salvar."""
+) -> bool:
+    """Confirma a vaga na página e recalcula o match antes de enviá-la."""
     resultado = enriquecer_vaga(vaga)
+
+    if vaga.encerrada:
+        logger.info(
+            "Vaga '%s' descartada após leitura: anúncio não aceita mais candidaturas.",
+            vaga.titulo,
+        )
+        return False
+
+    # Resultado de busca remota do LinkedIn é apenas candidato ao filtro.
+    # Sem confirmação na página, falha fechado: é preferível perder um
+    # anúncio bloqueado a enviar outra vaga presencial em outro país.
+    if vaga.modalidade_presumida:
+        logger.info(
+            "Vaga '%s' descartada após leitura: modalidade remota não foi confirmada no anúncio.",
+            vaga.titulo,
+        )
+        return False
+
+    # A página completa é mais confiável que o cartão. Se ela corrigiu a
+    # modalidade para presencial/híbrida, execute a política geográfica de
+    # novo antes de salvar, enfileirar no digest ou chamar o Telegram.
+    if not vaga.combina_com(regras):
+        logger.info(
+            "Vaga '%s' descartada após leitura completa: modalidade/local fora da política.",
+            vaga.titulo,
+        )
+        return False
+
     vaga.relevancia = vaga.pontuar_relevancia(regras)
     vaga.motivo = vaga.motivo_aprovacao(regras)
     ajuste, amostra, taxa = obter_ajuste_match_feedback(vaga.titulo, perfil_chave)
@@ -56,6 +84,7 @@ def _atualizar_match_com_descricao(
         len(vaga.descricao),
         vaga.probabilidade_match,
     )
+    return True
 
 
 def _fontes_baixa_frequencia_ja_rodaram_hoje(perfil: Perfil) -> bool:
@@ -340,11 +369,12 @@ def ciclo_de_busca(perfil: Perfil):
                 if ja_vista(vaga, perfil.chave):
                     continue
 
-                _atualizar_match_com_descricao(
+                if not _atualizar_match_com_descricao(
                     vaga,
                     perfil.regras,
                     perfil.chave,
-                )
+                ):
+                    continue
 
                 # Item 08: só notifica na hora quando o match passa do
                 # limiar (ver LIMIAR_DIGEST_IMEDIATO em config.py) — abaixo
@@ -393,11 +423,12 @@ def ciclo_de_busca(perfil: Perfil):
                 if ja_vista(vaga, perfil.chave):
                     continue
 
-                _atualizar_match_com_descricao(
+                if not _atualizar_match_com_descricao(
                     vaga,
                     perfil.regras_eixo_secundario or perfil.regras,
                     perfil.chave,
-                )
+                ):
+                    continue
 
                 # Mesma regra de vaga antiga do loop acima.
                 if vaga.relevancia >= LIMIAR_DIGEST_IMEDIATO and not vaga.publicacao_antiga:

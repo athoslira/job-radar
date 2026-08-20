@@ -993,6 +993,15 @@ class Job:
     # `local` só com informação de localização de verdade. Valores usados:
     # "Remoto", "Híbrido", "Presencial", ou "" quando a fonte não expõe.
     modalidade: str = ""
+    # True quando "Remoto" veio apenas do filtro da URL da fonte, e não do
+    # anúncio aberto. O LinkedIn já devolveu vaga presencial em uma busca
+    # com f_WT=2; portanto esse sinal serve só para o pré-filtro. A página
+    # completa precisa confirmar a modalidade antes da notificação.
+    modalidade_presumida: bool = False
+    # Preenchido pela leitura da página completa quando a fonte informa que
+    # não recebe mais candidaturas. Vaga encerrada nunca deve ser salva nem
+    # enviada, mesmo que ainda apareça na listagem da busca.
+    encerrada: bool = False
     # MEDIDO: WeWorkRemotelyIntlScraper preenche `local` com a SEDE da
     # empresa (".new-listing__company-headquarters"), não o mercado onde a
     # vaga contrata — o site é 100% remoto por definição, sede não diz nada
@@ -1043,6 +1052,7 @@ class Job:
         modalidade_real = _modalidade_pelo_titulo(self.titulo)
         if modalidade_real and self.modalidade == "Remoto":
             self.modalidade = modalidade_real
+            self.modalidade_presumida = False
 
     @property
     def id(self) -> str:

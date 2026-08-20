@@ -56,6 +56,62 @@ class ResultadoLeitura:
     descricao: str = ""
     metodo: str = "indisponível"
     bloqueada: bool = False
+    modalidade: str = ""
+    encerrada: bool = False
+
+
+def _normalizar_sinal(texto: str) -> str:
+    return (
+        texto.lower().replace("á", "a").replace("ã", "a").replace("â", "a")
+        .replace("é", "e").replace("ê", "e").replace("í", "i")
+        .replace("ó", "o").replace("ô", "o").replace("õ", "o")
+        .replace("ú", "u").replace("ü", "u").replace("ç", "c")
+    )
+
+
+def _detectar_modalidade_pagina(texto: str) -> str:
+    """Lê o selo de modalidade exibido no topo da página da vaga.
+
+    Só considera linhas curtas e explícitas. Isso evita classificar uma vaga
+    pelo uso casual de "remote" ou "hybrid" dentro dos requisitos.
+    """
+    modalidades = (
+        (r"(?:presencial|on[ -]?site)", "Presencial"),
+        (r"(?:hibrid[oa]|hybrid)", "Híbrido"),
+        (r"(?:remot[oa]|remote|fully remote|100% remote)", "Remoto"),
+    )
+    for linha in texto.splitlines()[:120]:
+        linha_norm = _normalizar_sinal(linha).strip()
+        if not linha_norm or len(linha_norm) > 100:
+            continue
+        linha_norm = re.sub(
+            r"^(?:modalidade(?: de trabalho)?|modelo de trabalho|workplace type)\s*[:\-]?\s*",
+            "",
+            linha_norm,
+        )
+        for padrao, modalidade in modalidades:
+            if re.fullmatch(rf"{padrao}(?:\s*[·|,;]\s*tempo integral)?", linha_norm):
+                return modalidade
+    return ""
+
+
+def _detectar_vaga_encerrada(texto: str) -> bool:
+    normalizado = _normalizar_sinal(texto)
+    return any(
+        termo in normalizado
+        for termo in (
+            "nao aceita mais candidaturas",
+            "nao estamos mais aceitando candidaturas",
+            "no longer accepting applications",
+            "this job is no longer available",
+            "job is no longer available",
+            "applications are closed",
+            "vaga encerrada",
+            "vaga expirada",
+            "job expired",
+            "position has been filled",
+        )
+    )
 
 
 def _limpar_texto(texto: str) -> str:
@@ -226,19 +282,40 @@ class LeitorDescricaoVaga:
             if _pagina_bloqueada(corpo) or self._tem_desafio_visual(page):
                 return ResultadoLeitura(bloqueada=True)
 
+            modalidade = _detectar_modalidade_pagina(corpo)
+            encerrada = _detectar_vaga_encerrada(corpo)
+
             descricao = _selecionar_descricao(self._coletar_blocos(page), corpo)
             if len(descricao) >= _MINIMO_TEXTO_UTIL:
-                return ResultadoLeitura(descricao=descricao, metodo="HTML")
+                return ResultadoLeitura(
+                    descricao=descricao,
+                    metodo="HTML",
+                    modalidade=modalidade,
+                    encerrada=encerrada,
+                )
 
             # Fallback para descrição renderizada em canvas/imagem. Não roda
             # em páginas bloqueadas (checagem acima), portanto não lê CAPTCHA.
             imagem = page.screenshot(full_page=True, type="png", scale="css")
             texto_ocr = _texto_por_ocr(imagem)
+            modalidade_ocr = _detectar_modalidade_pagina(texto_ocr)
+            modalidade = modalidade or modalidade_ocr
+            encerrada = encerrada or _detectar_vaga_encerrada(texto_ocr)
             if len(texto_ocr) > len(descricao) and _texto_ocr_parece_vaga(texto_ocr):
-                return ResultadoLeitura(descricao=texto_ocr, metodo="OCR")
+                return ResultadoLeitura(
+                    descricao=texto_ocr,
+                    metodo="OCR",
+                    modalidade=modalidade,
+                    encerrada=encerrada,
+                )
             if descricao:
-                return ResultadoLeitura(descricao=descricao, metodo="HTML parcial")
-            return ResultadoLeitura()
+                return ResultadoLeitura(
+                    descricao=descricao,
+                    metodo="HTML parcial",
+                    modalidade=modalidade,
+                    encerrada=encerrada,
+                )
+            return ResultadoLeitura(modalidade=modalidade, encerrada=encerrada)
         finally:
             page.close()
 
@@ -277,4 +354,8 @@ def enriquecer_vaga(job: Job) -> ResultadoLeitura:
     resultado = _LEITOR.ler(job.link)
     job.descricao = resultado.descricao
     job.descricao_fonte = resultado.metodo
+    if resultado.modalidade:
+        job.modalidade = resultado.modalidade
+        job.modalidade_presumida = False
+    job.encerrada = resultado.encerrada
     return resultado

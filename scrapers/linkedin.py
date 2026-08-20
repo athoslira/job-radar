@@ -27,9 +27,10 @@ logger = get_logger()
 # nacional. O LinkedIn pagina via &start= (10 vagas por página).
 MAX_PAGINAS = 3
 
-# Segunda passada, só com o filtro nativo de remoto do LinkedIn (f_WT=2 —
-# confirmado ao vivo que existe e funciona: filtra de verdade por vaga
-# marcada como remota pelo próprio LinkedIn). Existe porque o card de busca
+# Segunda passada, com o filtro nativo de remoto do LinkedIn (f_WT=2). Ele
+# reduz os resultados ao conjunto que o LinkedIn considera remoto, mas não
+# é prova definitiva: já houve resultado presencial dentro desse filtro.
+# Existe porque o card de busca
 # NUNCA mostra "Remoto" no campo local, nem nessa passada filtrada — mesmo
 # vaga 100% remota aparece com a cidade onde a empresa está registrada (ex:
 # "Analista de Dados" remoto veio como "Curitiba, PR"). Sem essa passada e
@@ -72,10 +73,11 @@ class LinkedInScraper(BaseScraper):
     uma nacional sem filtro de modalidade (pega vaga presencial/híbrida em
     cidade específica, cobre Recife/Natal/Maceió etc.) e outra com f_WT=2
     (só vaga que o próprio LinkedIn marca como remota). Essa segunda marca o
-    campo `modalidade` como "Remoto" diretamente (o próprio LinkedIn já
-    garante isso), porque o card nunca expõe isso sozinho em texto (ver
-    MAX_PAGINAS_REMOTO acima) — `local` fica só com a cidade que o card
-    mostra, mesmo pra vaga remota.
+    campo `modalidade` como "Remoto" apenas para o pré-filtro, porque o card
+    nunca expõe isso sozinho em texto (ver MAX_PAGINAS_REMOTO acima). Esse
+    valor fica marcado como presumido e precisa ser confirmado na página
+    completa antes de qualquer notificação — o LinkedIn pode devolver
+    resultado presencial mesmo quando a busca usa f_WT=2.
 
     `locations`: LinkedIn é a única fonte deste pipeline com alcance fora do
     Brasil — as outras são portais brasileiros. Antes ficava fixo em
@@ -234,16 +236,15 @@ class LinkedInScraper(BaseScraper):
                             local_el = card.query_selector(".job-search-card__location")
                             local = local_el.inner_text().strip() if local_el else "Não informado"
 
-                            # f_WT=2 já garante que é vaga remota (o próprio
-                            # LinkedIn classificou assim), mesmo quando o
+                            # f_WT=2 é usado como sinal preliminar de vaga
+                            # remota, mesmo quando o
                             # campo local só mostra a cidade da empresa —
-                            # marca direto, sem precisar achar "remoto" no
-                            # texto do local. f_WT=2 às vezes diverge do
-                            # próprio anúncio (título diz "Hybrid") —
-                            # Job.__post_init__ corrige isso pra QUALQUER
-                            # fonte, não só aqui. Passada nacional: só marca
-                            # se o próprio card organicamente disser isso no
-                            # local.
+                            # marca para conseguir chegar à leitura da página
+                            # completa. O valor NÃO é prova definitiva:
+                            # f_WT=2 pode divergir do anúncio. A flag
+                            # modalidade_presumida força a confirmação antes
+                            # de notificar. Passada nacional: só marca se o
+                            # próprio card organicamente disser isso no local.
                             if remoto:
                                 modalidade = "Remoto"
                             else:
@@ -265,11 +266,12 @@ class LinkedInScraper(BaseScraper):
                                 site="LinkedIn Global" if eixo_global else "LinkedIn",
                                 publicado_em=publicado_em,
                                 modalidade=modalidade,
+                                modalidade_presumida=remoto,
                                 # Em busca global o local do card costuma
                                 # ser a sede da empresa, não a abrangência
-                                # permitida da vaga. O filtro f_WT=2 já
-                                # confirmou 100% remoto; não transforme a
-                                # sede em restrição de contratação.
+                                # permitida da vaga. Se a página confirmar
+                                # remoto, não transforme a sede em restrição
+                                # de contratação.
                                 escopo_indefinido=eixo_global,
                             ))
                         except Exception as e:

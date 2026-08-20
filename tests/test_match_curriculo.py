@@ -184,6 +184,59 @@ def test_pipeline_recalcula_match_depois_de_ler_descricao(monkeypatch):
     assert vaga.probabilidade_match == 95
 
 
+def test_pipeline_rejeita_presencial_no_exterior_depois_da_pagina_completa(monkeypatch):
+    vaga = Job(
+        titulo="Data Analyst",
+        empresa="Petrovis group",
+        local="Sukhbaatar, Ulaanbaatar Hot, Mongolia",
+        modalidade="Remoto",
+        modalidade_presumida=True,
+        escopo_indefinido=True,
+        link="https://example.com/petrovis",
+        site="LinkedIn Global",
+    )
+    assert vaga.combina_com(PERFIL_DADOS_BI.regras)
+
+    def enriquecer(job):
+        job.descricao = "Descrição completa da vaga"
+        job.descricao_fonte = "HTML"
+        job.modalidade = "Presencial"
+        job.modalidade_presumida = False
+        return SimpleNamespace(metodo="HTML")
+
+    monkeypatch.setattr(main, "enriquecer_vaga", enriquecer)
+
+    assert not main._atualizar_match_com_descricao(
+        vaga,
+        PERFIL_DADOS_BI.regras,
+        PERFIL_DADOS_BI.chave,
+    )
+
+
+def test_pipeline_rejeita_remoto_presumido_sem_confirmacao(monkeypatch):
+    vaga = Job(
+        titulo="Data Analyst",
+        empresa="Empresa",
+        local="Worldwide",
+        modalidade="Remoto",
+        modalidade_presumida=True,
+        escopo_indefinido=True,
+        link="https://example.com/sem-confirmacao",
+        site="LinkedIn Global",
+    )
+    monkeypatch.setattr(
+        main,
+        "enriquecer_vaga",
+        lambda job: SimpleNamespace(metodo="indisponível"),
+    )
+
+    assert not main._atualizar_match_com_descricao(
+        vaga,
+        PERFIL_DADOS_BI.regras,
+        PERFIL_DADOS_BI.chave,
+    )
+
+
 def test_pipeline_aplica_calibracao_do_feedback(monkeypatch):
     vaga = Job(
         titulo="Analista de Dados Júnior",

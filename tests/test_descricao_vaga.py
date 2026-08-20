@@ -1,13 +1,57 @@
 """Extração otimizada da descrição e proteções do fallback OCR."""
 
+import core.descricao_vaga as descricao_vaga
+
 from core.descricao_vaga import (
     LeitorDescricaoVaga,
     ResultadoLeitura,
     _limpar_texto,
+    _detectar_modalidade_pagina,
+    _detectar_vaga_encerrada,
     _pagina_bloqueada,
     _selecionar_descricao,
     _texto_ocr_parece_vaga,
+    enriquecer_vaga,
 )
+from core.job import Job
+
+
+def test_detecta_modalidade_explicita_sem_usar_mencao_solto_na_descricao():
+    assert _detectar_modalidade_pagina("Data Analyst\nPresencial\nTempo integral") == "Presencial"
+    assert _detectar_modalidade_pagina("Data Analyst\nWorkplace type: Remote") == "Remoto"
+    assert _detectar_modalidade_pagina("A equipe poderá colaborar com times remote.") == ""
+
+
+def test_detecta_anuncio_que_nao_aceita_mais_candidaturas():
+    assert _detectar_vaga_encerrada("Não aceita mais candidaturas")
+    assert _detectar_vaga_encerrada("No longer accepting applications")
+    assert not _detectar_vaga_encerrada("Candidate-se agora")
+
+
+def test_enriquecimento_substitui_remoto_presumido_pela_modalidade_da_pagina(monkeypatch):
+    vaga = Job(
+        titulo="Data Analyst",
+        empresa="Petrovis group",
+        local="Ulaanbaatar, Mongolia",
+        link="https://example.com/vaga",
+        site="LinkedIn Global",
+        modalidade="Remoto",
+        modalidade_presumida=True,
+    )
+    monkeypatch.setattr(
+        descricao_vaga._LEITOR,
+        "ler",
+        lambda link: ResultadoLeitura(
+            descricao="Descrição completa",
+            metodo="HTML",
+            modalidade="Presencial",
+        ),
+    )
+
+    enriquecer_vaga(vaga)
+
+    assert vaga.modalidade == "Presencial"
+    assert not vaga.modalidade_presumida
 
 
 def test_limpa_linhas_repetidas_e_espacos_sem_achatar_secoes():
