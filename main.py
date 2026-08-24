@@ -6,7 +6,12 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timezone
 
-from core.config import DIGEST_HORA_UTC, INTERVALO_MINUTOS, LIMIAR_DIGEST_IMEDIATO
+from core.config import (
+    DIGEST_HORA_UTC,
+    INTERVALO_MINUTOS,
+    LIMIAR_DIGEST_IMEDIATO,
+    LIMIAR_MATCH_MINIMO,
+)
 from core.descricao_vaga import enriquecer_vaga
 from core.job import Job, RegrasFiltro
 from database.database import (
@@ -77,6 +82,14 @@ def _atualizar_match_com_descricao(
         vaga.motivo += (
             f" · feedback: {taxa:.0%} positivo em {amostra} vagas similares"
         )
+    if vaga.relevancia < LIMIAR_MATCH_MINIMO:
+        logger.info(
+            "Vaga '%s' descartada após ATS: match %s%% abaixo do mínimo de %s%%.",
+            vaga.titulo,
+            vaga.probabilidade_match,
+            LIMIAR_MATCH_MINIMO * 10,
+        )
+        return False
     logger.info(
         "Descrição de '%s': %s (%s caracteres), match %s%%.",
         vaga.titulo,
@@ -279,10 +292,9 @@ def _deve_alertar_saude(com_problema: int, total: int) -> bool:
     """A maioria ESTRITA das fontes falhou neste ciclo?
 
     MEDIDO: a regra era ">= metade", o que com 2 fontes significa que UMA
-    sozinha ja dispara o alerta. Isso passou a importar quando o Indeed foi
-    desligado e o perfil Internacional ficou com 2 fontes: o WeWorkRemotely e
-    pequeno (5 vagas no ciclo medido, vazio em 9 dos 10 termos), entao um dia
-    mais fraco viraria "JobRadar com problema" sem haver problema nenhum.
+    sozinha ja dispara o alerta. Isso passou a importar num perfil que ficou
+    temporariamente com apenas 2 fontes: uma fonte pequena voltava vazia em
+    dias fracos e gerava "JobRadar com problema" sem haver problema nenhum.
 
     Alerta que dispara sem motivo e pior que alerta que nao existe: depois de
     duas ou tres vezes, ele deixa de ser lido -- e ai nao serve mais nem

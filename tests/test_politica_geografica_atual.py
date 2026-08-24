@@ -91,3 +91,9 @@ def test_cada_nicho_configura_seu_vocabulario_global(perfil, keywords, termos):
     )
     assert definicao.kwargs_extras["keywords_titulo_global"] == keywords
     assert definicao.kwargs_extras["termos_busca_global"] == termos
+
+
+@pytest.mark.parametrize("perfil", [PERFIL_DADOS_BI, PERFIL_CX])
+def test_we_work_remotely_nao_participa_de_nenhum_fluxo_ativo(perfil):
+    nomes = {definicao.classe.__name__ for definicao in perfil.definicao_scrapers}
+    assert "WeWorkRemotelyIntlScraper" not in nomes

@@ -312,6 +312,13 @@ INTERVALO_MINUTOS = int(os.getenv("INTERVALO_MINUTOS", 180))
 # praticamente tudo, quase nenhuma vaga "excelente" se destacando na hora).
 LIMIAR_DIGEST_IMEDIATO = 7
 
+# Depois da leitura completa e da avaliação ATS, notas abaixo de 4/10 não
+# chegam nem ao digest. O filtro inicial continua amplo para que a página
+# seja lida; o descarte só ocorre quando requisitos, currículo, nível e
+# geografia já foram cruzados. Evita apresentar como oportunidade uma vaga
+# que o próprio ranking classificou como baixa aderência.
+LIMIAR_MATCH_MINIMO = 4
+
 # Hora UTC a partir da qual o digest diário pode sair (uma vez por perfil,
 # por dia — ver _enviar_digest_diario em main.py). A regra é "ainda não
 # enviei hoje E já passou desta hora", então o digest sai no PRIMEIRO ciclo

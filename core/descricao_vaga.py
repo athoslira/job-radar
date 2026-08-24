@@ -352,8 +352,12 @@ atexit.register(_LEITOR.fechar)
 
 def enriquecer_vaga(job: Job) -> ResultadoLeitura:
     resultado = _LEITOR.ler(job.link)
-    job.descricao = resultado.descricao
-    job.descricao_fonte = resultado.metodo
+    # APIs como Remotive/Jobicy já entregam a descrição integral. Se a
+    # página pública bloquear o navegador, preserve esse texto em vez de
+    # apagá-lo e regredir o cálculo ATS para o cartão da vaga.
+    if resultado.descricao:
+        job.descricao = resultado.descricao
+        job.descricao_fonte = resultado.metodo
     if resultado.modalidade:
         job.modalidade = resultado.modalidade
         job.modalidade_presumida = False

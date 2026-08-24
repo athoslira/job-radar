@@ -128,7 +128,8 @@ def test_requisitos_nao_comprovados_reduzem_match_e_ficam_explicitos():
     )
 
     assert vaga.relevancia == 2
-    assert "lacunas: tableau, aws" in vaga.motivo
+    assert "cobertura ATS: 0/2 requisitos técnicos (0%)" in vaga.motivo
+    assert "lacunas obrigatórias: aws, tableau" in vaga.motivo
     assert "pede 5+ anos; perfil comprova ~2" in vaga.motivo
     assert "graduação ainda em andamento" in vaga.motivo
 
@@ -146,7 +147,48 @@ def test_ferramenta_apenas_desejavel_nao_vira_lacuna():
         ),
         PERFIL_DADOS_BI,
     )
-    assert "lacunas:" not in vaga.motivo
+    assert "lacunas obrigatórias:" not in vaga.motivo
+
+
+def test_ats_reconhece_alias_e_mede_cobertura_dos_requisitos():
+    vaga = _pontuar(
+        Job(
+            titulo="Data Analyst Junior",
+            empresa="Empresa",
+            local="Worldwide",
+            modalidade="Remoto",
+            escopo_indefinido=True,
+            link="https://example.com/ats-alias",
+            site="Jobicy",
+            descricao=(
+                "Requirements\nMicrosoft Power BI\nT-SQL\nTableau Desktop\n"
+                "Nice to have\nAmazon Web Services"
+            ),
+        ),
+        PERFIL_DADOS_BI,
+    )
+
+    assert "cobertura ATS: 2/3 requisitos técnicos (67%)" in vaga.motivo
+    assert "skills comprovadas: power bi, sql" in vaga.motivo
+    assert "lacunas obrigatórias: tableau" in vaga.motivo
+    assert "aws" not in vaga.motivo.split("lacunas obrigatórias:", 1)[-1]
+
+
+def test_anos_da_empresa_nao_viram_experiencia_exigida_do_candidato():
+    vaga = _pontuar(
+        Job(
+            titulo="Analista de Dados",
+            empresa="Empresa",
+            local="Brasília - DF",
+            modalidade="Presencial",
+            link="https://example.com/idade-empresa",
+            site="Teste",
+            descricao="Empresa com mais de 40 anos de experiência no mercado. Requisitos: SQL.",
+        ),
+        PERFIL_DADOS_BI,
+    )
+
+    assert "pede 40+ anos" not in vaga.motivo
 
 
 def test_pipeline_recalcula_match_depois_de_ler_descricao(monkeypatch):
@@ -161,7 +203,7 @@ def test_pipeline_recalcula_match_depois_de_ler_descricao(monkeypatch):
         ),
         PERFIL_DADOS_BI,
     )
-    assert vaga.relevancia == 9
+    assert vaga.relevancia == 7
 
     def enriquecer(job):
         job.descricao = "Requisitos: Power BI, SQL e Python."
@@ -264,6 +306,39 @@ def test_pipeline_aplica_calibracao_do_feedback(monkeypatch):
     )
 
     assert "feedback: 75% positivo em 4 vagas similares" in vaga.motivo
+
+
+def test_pipeline_descarta_match_ats_muito_baixo(monkeypatch):
+    vaga = Job(
+        titulo="Senior Business Analyst",
+        empresa="Empresa",
+        local="LATAM",
+        modalidade="Remoto",
+        link="https://example.com/match-baixo",
+        site="Jobicy",
+        descricao=(
+            "Requirements: Azure and 8 years of experience. "
+            "Bachelor's degree required."
+        ),
+        descricao_fonte="API Jobicy",
+    )
+    monkeypatch.setattr(
+        main,
+        "enriquecer_vaga",
+        lambda job: SimpleNamespace(metodo="API Jobicy"),
+    )
+    monkeypatch.setattr(
+        main,
+        "obter_ajuste_match_feedback",
+        lambda titulo, perfil: (0, 0, 0.0),
+    )
+
+    assert not main._atualizar_match_com_descricao(
+        vaga,
+        PERFIL_DADOS_BI.regras,
+        PERFIL_DADOS_BI.chave,
+    )
+    assert vaga.relevancia < 4
 
 
 def test_telegram_exibe_percentual_de_match():

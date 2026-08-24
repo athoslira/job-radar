@@ -151,8 +151,8 @@ def test_hora_configurada_entrega_de_manha_e_nao_de_madrugada(cenario, monkeypat
 
 @pytest.mark.parametrize("com_problema, total, esperado", [
     # 2 fontes: o caso que motivou a mudanca. Perfil Internacional ficou
-    # assim quando o Indeed foi desligado, e o WeWorkRemotely e pequeno o
-    # bastante pra voltar vazio num dia fraco.
+    # assim quando fontes foram desligadas e uma das duas restantes era
+    # pequena o bastante pra voltar vazia num dia fraco.
     (0, 2, False),
     (1, 2, False),   # antes disparava aqui -- alerta falso
     (2, 2, True),    # as duas cairam: e problema de verdade

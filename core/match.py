@@ -31,6 +31,11 @@ class MapaMatchCurriculo:
     cargos_experiencia_transferivel: tuple[str, ...]
     competencias_comprovadas: tuple[str, ...]
     lacunas_conhecidas: tuple[str, ...] = ()
+    # Grupos de equivalência no formato (nome canônico, alias 1, alias 2...).
+    # ATS comerciais normalmente normalizam variações antes de comparar;
+    # aqui isso é explícito e auditável, sem inventar experiência nova.
+    competencias_equivalentes: tuple[tuple[str, ...], ...] = ()
+    lacunas_equivalentes: tuple[tuple[str, ...], ...] = ()
     anos_experiencia_relevante: int = 0
     ingles_fluente: bool = False
     formacao_superior_concluida: bool = False
@@ -43,36 +48,109 @@ class ResultadoMatch:
 
     @property
     def percentual(self) -> int:
-        return self.pontos * 10
+        return min(95, self.pontos * 10)
 
 
 def _encontrar_termos(texto: str, termos: tuple[str, ...]) -> list[str]:
     return [termo for termo in termos if _contem_termo(texto, termo)]
 
 
-def _encontrar_lacunas_exigidas(texto: str, termos: tuple[str, ...]) -> list[str]:
-    """Só penaliza ferramenta próxima de linguagem de obrigatoriedade."""
-    normalizado = _normalizar(texto)
-    obrigatorios = (
-        "requisito", "requirements", "required", "must have", "must-have",
-        "obrigatorio", "necessario", "necessaria", "mandatory",
-    )
-    opcionais = ("desejavel", "diferencial", "nice to have", "preferred", "optional")
-    encontrados: list[str] = []
-    for termo in termos:
-        termo_norm = _normalizar(termo)
-        for match in re.finditer(rf"(?<!\w){re.escape(termo_norm)}(?!\w)", normalizado):
-            contexto = normalizado[max(0, match.start() - 300):match.end() + 80]
-            if any(sinal in contexto for sinal in opcionais):
-                continue
-            if any(sinal in contexto for sinal in obrigatorios):
-                encontrados.append(termo)
-                break
-    return encontrados
+def _grupos_de_termos(
+    termos: tuple[str, ...],
+    equivalentes: tuple[tuple[str, ...], ...],
+) -> tuple[tuple[str, ...], ...]:
+    """Une termos literais e grupos de sinônimos sem contar duplicado."""
+    aliases_agrupados = {
+        alias for grupo in equivalentes if grupo for alias in grupo
+    }
+    individuais = tuple((termo,) for termo in termos if termo not in aliases_agrupados)
+    return tuple(grupo for grupo in equivalentes if grupo) + individuais
+
+
+def _encontrar_grupos(texto: str, grupos: tuple[tuple[str, ...], ...]) -> list[str]:
+    return [
+        grupo[0]
+        for grupo in grupos
+        if any(_contem_termo(texto, alias) for alias in grupo)
+    ]
+
+
+_SINAIS_OBRIGATORIO = (
+    "requisito", "requirements", "qualification", "must have", "must-have",
+    "obrigatorio", "necessario", "necessaria", "mandatory", "minimum",
+    "minimo", "at least", "pelo menos", "what we are looking for",
+    "what we're looking for", "o que buscamos", "perfil que buscamos",
+)
+_SINAIS_OPCIONAL = (
+    "desejavel", "diferencial", "nice to have", "preferred", "optional",
+    "bonus", "seria um plus", "considerado um plus",
+)
+_CABECALHOS_NEUTROS = (
+    "responsabilidades", "responsibilities", "about the role", "sobre a vaga",
+    "beneficios", "benefits", "atividades", "what you will do", "what you'll do",
+)
+
+
+def _classificar_requisitos(
+    descricao: str,
+    grupos: tuple[tuple[str, ...], ...],
+) -> tuple[set[str], set[str], set[str]]:
+    """Separa competências obrigatórias, opcionais e apenas mencionadas.
+
+    Mantém o estado do cabeçalho da seção e também reconhece marcadores na
+    própria frase. Assim, "Requisitos" vale para as linhas seguintes, mas
+    "Diferencial: Tableau" nunca vira lacuna obrigatória.
+    """
+    obrigatorios: set[str] = set()
+    opcionais: set[str] = set()
+    gerais: set[str] = set()
+    secao = "geral"
+    blocos = re.split(r"[\r\n]+|(?<=[.!?;])\s+", descricao)
+    for bloco in blocos:
+        normalizado = _normalizar(bloco).strip()
+        if not normalizado:
+            continue
+
+        tem_opcional = any(sinal in normalizado for sinal in _SINAIS_OPCIONAL)
+        tem_obrigatorio = any(sinal in normalizado for sinal in _SINAIS_OBRIGATORIO)
+        cabecalho_curto = len(normalizado) <= 90
+        if tem_opcional:
+            tipo = "opcional"
+            if cabecalho_curto:
+                secao = "opcional"
+        elif tem_obrigatorio:
+            tipo = "obrigatorio"
+            if cabecalho_curto:
+                secao = "obrigatorio"
+        elif cabecalho_curto and any(
+            cabecalho in normalizado for cabecalho in _CABECALHOS_NEUTROS
+        ):
+            secao = "geral"
+            tipo = "geral"
+        else:
+            tipo = secao
+
+        encontrados = _encontrar_grupos(bloco, grupos)
+        destino = {
+            "obrigatorio": obrigatorios,
+            "opcional": opcionais,
+            "geral": gerais,
+        }[tipo]
+        destino.update(encontrados)
+
+    # Uma menção obrigatória prevalece sobre repetição opcional/geral.
+    opcionais -= obrigatorios
+    gerais -= obrigatorios | opcionais
+    return obrigatorios, opcionais, gerais
 
 
 def _anos_exigidos(descricao: str) -> int | None:
-    """Maior requisito explícito de anos próximo de 'experiência'."""
+    """Maior requisito plausível de anos próximo de 'experiência'.
+
+    O teto de 15 elimina idade da empresa/candidato e frases institucionais
+    como "40 anos de experiência no mercado", que antes viravam requisito
+    individual e derrubavam o match indevidamente.
+    """
     texto = _normalizar(descricao)
     encontrados: list[int] = []
     padrao = re.compile(r"(?<!\d)(\d{1,2})\s*(?:\+|ou mais)?\s*(?:anos?|years?)")
@@ -81,7 +159,9 @@ def _anos_exigidos(descricao: str) -> int | None:
         if "experien" in contexto and not any(
             termo in contexto for termo in ("desejavel", "nice to have", "preferred")
         ):
-            encontrados.append(int(match.group(1)))
+            anos = int(match.group(1))
+            if 1 <= anos <= 15:
+                encontrados.append(anos)
     return max(encontrados) if encontrados else None
 
 
@@ -117,7 +197,8 @@ def calcular_match_curriculo(
 
     Pesos deliberadamente simples e auditáveis:
     - experiência no cargo: 4 direta, 3 transferível, 2 aderência genérica;
-    - competências comprovadas na descrição/título: até 3;
+    - cobertura dos requisitos técnicos: até 3, proporcional ao que o
+      currículo comprova, com deságio de até 3 por lacunas obrigatórias;
     - senioridade: +2 alinhada, +1 não informada, -2 acima do histórico;
     - geografia/mercado confirmado: +1;
     - inglês explícito: +1 quando atendido, -1 quando não atendido;
@@ -142,18 +223,50 @@ def calcular_match_curriculo(
         sinais.append(f"cargo aderente a {mapa.nicho}")
 
     texto_vaga = f"{titulo}\n{descricao}" if descricao else titulo
-    competencias = _encontrar_termos(texto_vaga, mapa.competencias_comprovadas)
-    if competencias:
-        pontos += min(3, len(competencias))
-        sinais.append("skills comprovadas: " + ", ".join(competencias[:4]))
-
-    lacunas = (
-        _encontrar_lacunas_exigidas(descricao, mapa.lacunas_conhecidas)
-        if descricao else []
+    grupos_comprovados = _grupos_de_termos(
+        mapa.competencias_comprovadas,
+        mapa.competencias_equivalentes,
     )
-    if lacunas:
-        pontos -= min(2, len(lacunas))
-        sinais.append("lacunas: " + ", ".join(lacunas[:3]))
+    grupos_lacunas = _grupos_de_termos(
+        mapa.lacunas_conhecidas,
+        mapa.lacunas_equivalentes,
+    )
+    competencias = _encontrar_grupos(texto_vaga, grupos_comprovados)
+
+    obrigatorios_ok: set[str] = set()
+    opcionais_ok: set[str] = set()
+    obrigatorios_lacuna: set[str] = set()
+    if descricao:
+        obrigatorios_ok, opcionais_ok, _ = _classificar_requisitos(
+            descricao, grupos_comprovados
+        )
+        obrigatorios_lacuna, _, _ = _classificar_requisitos(
+            descricao, grupos_lacunas
+        )
+
+    total_obrigatorios = len(obrigatorios_ok) + len(obrigatorios_lacuna)
+    if total_obrigatorios:
+        cobertura = len(obrigatorios_ok) / total_obrigatorios
+        pontos += round(3 * cobertura)
+        sinais.append(
+            "cobertura ATS: "
+            f"{len(obrigatorios_ok)}/{total_obrigatorios} requisitos técnicos "
+            f"({cobertura:.0%})"
+        )
+    elif competencias:
+        pontos += min(3, len(competencias))
+
+    if competencias:
+        sinais.append("skills comprovadas: " + ", ".join(competencias[:4]))
+    if opcionais_ok:
+        pontos += 1
+        sinais.append("diferenciais comprovados: " + ", ".join(sorted(opcionais_ok)[:3]))
+    if obrigatorios_lacuna:
+        pontos -= min(3, len(obrigatorios_lacuna))
+        sinais.append(
+            "lacunas obrigatórias: "
+            + ", ".join(sorted(obrigatorios_lacuna)[:4])
+        )
 
     if senioridade in {"Júnior", "Pleno"}:
         pontos += 2
@@ -195,6 +308,9 @@ def calcular_match_curriculo(
 
     if not descricao:
         sinais.append("descrição completa indisponível")
+        # Sem requisitos não existe base para um ATS afirmar aderência alta,
+        # ainda que título, senioridade e localização pareçam perfeitos.
+        pontos = min(pontos, 7)
 
     return ResultadoMatch(
         pontos=max(0, min(10, pontos)),

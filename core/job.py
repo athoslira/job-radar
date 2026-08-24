@@ -1326,7 +1326,8 @@ class Job:
                 geografia_confirmada=not av.bate_remoto or av.mercado_confirmado,
                 vaga_global_em_ingles=self.site in {
                     "LinkedIn Global",
-                    "We Work Remotely",
+                    "Remotive",
+                    "Jobicy",
                 },
             ).pontos
 
@@ -1393,7 +1394,8 @@ class Job:
                 geografia_confirmada=not av.bate_remoto or av.mercado_confirmado,
                 vaga_global_em_ingles=self.site in {
                     "LinkedIn Global",
-                    "We Work Remotely",
+                    "Remotive",
+                    "Jobicy",
                 },
             )
             return " · ".join(resultado.sinais)

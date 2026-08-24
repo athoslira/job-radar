@@ -63,11 +63,12 @@ from scrapers.gupy import GupyScraper
 from scrapers.indeed import IndeedScraper
 from scrapers.indeed_intl import IndeedIntlScraper
 from scrapers.jobs99 import Jobs99Scraper
+from scrapers.jobicy import JobicyScraper
 from scrapers.linkedin import LinkedInScraper
 from scrapers.linkedin_intl import LinkedInIntlScraper
 from scrapers.senior import SeniorScraper
 from scrapers.solides import SolidesScraper
-from scrapers.weworkremotely_intl import WeWorkRemotelyIntlScraper
+from scrapers.remotive import RemotiveScraper
 
 # "alta" roda TODO ciclo; "baixa" roda só na primeira execução de cada dia
 # (ver _fontes_baixa_frequencia_ja_rodaram_hoje em main.py). Existe pra
@@ -159,12 +160,10 @@ _REGRAS_BR_IBERIA = RegrasFiltro(
 # que foi medido à parte (Gupy ~2,6%); Catho, GeekHunter e 99Jobs ficam
 # abaixo de 1%.
 #
-# WeWorkRemotelyIntlScraper reaproveitado aqui (não duplicado): é agregador
-# de vaga 100% remota que cobre o mercado "remoto internacional" que
-# nenhuma das 8 fontes brasileiras alcança — mesmo scraper usado no perfil
-# internacional, sem nada daquele perfil hardcoded. Sem medição própria
-# ainda pra essa combinação (fonte + termos em português) — FREQUENCIA_BAIXA
-# até medir rendimento real.
+# We Work Remotely foi retirado do fluxo a pedido do usuário: as vagas
+# exigem assinatura para seguir com a candidatura, então aumentavam volume
+# sem gerar oportunidade diretamente aplicável. O scraper permanece no
+# repositório apenas como código inativo, para histórico.
 _SCRAPERS_BASE = [
     DefinicaoScraper(GupyScraper, FREQUENCIA_ALTA),        # ~2,6% de rendimento
     DefinicaoScraper(LinkedInScraper, FREQUENCIA_ALTA),     # ~8,5% — a melhor fonte de longe
@@ -198,7 +197,11 @@ _SCRAPERS_BASE = [
     DefinicaoScraper(CathoScraper, FREQUENCIA_BAIXA),       # <1%, timeout frequente em headless
     DefinicaoScraper(GeekHunterScraper, FREQUENCIA_BAIXA),  # <1%
     DefinicaoScraper(Jobs99Scraper, FREQUENCIA_BAIXA),      # <1%, fonte confirmada funcionando
-    DefinicaoScraper(WeWorkRemotelyIntlScraper, FREQUENCIA_BAIXA),  # nova, sem medição própria
+    # APIs públicas, sem assinatura do agregador para acessar o anúncio e
+    # seu link de candidatura. Ambas trazem descrição completa e rodam só
+    # uma vez ao dia por nicho.
+    DefinicaoScraper(RemotiveScraper, FREQUENCIA_BAIXA),
+    DefinicaoScraper(JobicyScraper, FREQUENCIA_BAIXA),
     # MEDIDO ao vivo antes de ligar (3 termos, 398 vagas brutas): rendimento
     # de 0,3% — abaixo da Sólides (1,1%), a fonte mais fraca que ficou. A
     # busca da API casa pedaço de palavra, não o termo: "analista bi" trouxe
@@ -230,6 +233,7 @@ _SCRAPERS_BASE = [
 def _scrapers_do_nicho(
     keywords_titulo_global: list[str],
     termos_busca_global: list[str],
+    jobicy_industry: str,
 ) -> list[DefinicaoScraper]:
     """Configura a mesma grade de fontes para o vocabulário global do nicho."""
     resultado = []
@@ -238,6 +242,11 @@ def _scrapers_do_nicho(
         if definicao.classe is LinkedInScraper:
             kwargs["keywords_titulo_global"] = keywords_titulo_global
             kwargs["termos_busca_global"] = termos_busca_global
+        elif definicao.classe is RemotiveScraper:
+            kwargs["keywords_titulo_global"] = keywords_titulo_global
+        elif definicao.classe is JobicyScraper:
+            kwargs["keywords_titulo_global"] = keywords_titulo_global
+            kwargs["industry"] = jobicy_industry
         resultado.append(
             DefinicaoScraper(definicao.classe, definicao.frequencia, kwargs)
         )
@@ -247,10 +256,12 @@ def _scrapers_do_nicho(
 _SCRAPERS_DADOS_BI = _scrapers_do_nicho(
     KEYWORDS_CARGO_INGLES,
     TERMOS_BUSCA_GLOBAL_DADOS_BI,
+    "data-science",
 )
 _SCRAPERS_CX = _scrapers_do_nicho(
     KEYWORDS_CX_INGLES,
     TERMOS_BUSCA_GLOBAL_CX,
+    "supporting",
 )
 
 PERFIL_DADOS_BI = Perfil(
@@ -342,7 +353,6 @@ _SCRAPERS_INTL = [
     # Indeed Intl desligado — ver MEDIDO em _SCRAPERS_BR. Era o gargalo
     # absoluto do ciclo internacional: 19 dos 25 minutos, zero vaga.
     # DefinicaoScraper(IndeedIntlScraper, FREQUENCIA_ALTA, {"dominios": DOMINIOS_INDEED_INTL}),
-    DefinicaoScraper(WeWorkRemotelyIntlScraper, FREQUENCIA_ALTA),
 ]
 
 PERFIL_INTL = Perfil(
