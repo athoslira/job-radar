@@ -10,7 +10,7 @@ import requests
 from core.job import Job
 from core.logger import get_logger
 from scrapers.api_jobs_utils import limpar_html_descricao, titulo_em_ingles_do_nicho
-from scrapers.base import BaseScraper
+from scrapers.base import BaseScraper, FonteIndisponivel
 
 
 logger = get_logger()
@@ -40,7 +40,7 @@ class RemotiveScraper(BaseScraper):
                 "[Remotive] API indisponível (%s).",
                 type(erro).__name__,
             )
-            return []
+            raise FonteIndisponivel("API Remotive indisponível") from erro
 
         vagas: list[Job] = []
         for item in itens:

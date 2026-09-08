@@ -17,7 +17,7 @@ from core.job import (
     extrair_data_publicacao,
 )
 from core.logger import get_logger
-from scrapers.base import BaseScraper
+from scrapers.base import BaseScraper, FonteIndisponivel
 
 logger = get_logger()
 
@@ -133,11 +133,15 @@ class LinkedInScraper(BaseScraper):
         vagas: list[Job] = []
         for termo in self.termos_busca:
             for location in self.locations:
-                vagas.extend(self._buscar_termo(termo, location, remoto=False))
-                vagas.extend(self._buscar_termo(termo, location, remoto=True))
+                vagas.extend(self._executar_consulta(
+                    self._buscar_termo, termo, location, remoto=False,
+                ))
+                vagas.extend(self._executar_consulta(
+                    self._buscar_termo, termo, location, remoto=True,
+                ))
             for location in self.locations_cidades_presencial:
-                vagas.extend(self._buscar_termo(
-                    termo, location, remoto=False,
+                vagas.extend(self._executar_consulta(
+                    self._buscar_termo, termo, location, remoto=False,
                     max_paginas=MAX_PAGINAS_CIDADE, rotulo="cidade",
                 ))
 
@@ -146,8 +150,11 @@ class LinkedInScraper(BaseScraper):
         # português não deixe o exterior sem busca naquele ciclo.
         for termo in self.termos_busca_global:
             for location in self.locations_remoto_apenas:
-                vagas.extend(self._buscar_termo(termo, location, remoto=True))
+                vagas.extend(self._executar_consulta(
+                    self._buscar_termo, termo, location, remoto=True,
+                ))
 
+        self._validar_disponibilidade()
         total_mercados = (
             len(self.locations) + len(self.locations_remoto_apenas)
             + len(self.locations_cidades_presencial)
@@ -280,6 +287,7 @@ class LinkedInScraper(BaseScraper):
 
             except Exception as e:
                 logger.error(f"[LinkedIn] Erro ao buscar '{termo}' ({tag}): {e}")
+                raise FonteIndisponivel(f"falha ao buscar '{termo}' ({tag})") from e
             finally:
                 browser.close()
 

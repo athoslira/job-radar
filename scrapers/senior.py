@@ -29,7 +29,7 @@ import requests
 
 from core.job import Job
 from core.logger import get_logger
-from scrapers.base import BaseScraper
+from scrapers.base import BaseScraper, FonteIndisponivel
 
 logger = get_logger()
 
@@ -138,7 +138,8 @@ class SeniorScraper(BaseScraper):
     def buscar_vagas(self) -> list[Job]:
         vagas: list[Job] = []
         for termo in self.termos_busca:
-            vagas.extend(self._buscar_termo(termo))
+            vagas.extend(self._executar_consulta(self._buscar_termo, termo))
+        self._validar_disponibilidade()
         logger.info(f"[Senior] {len(vagas)} vaga(s) encontrada(s) no total")
         return vagas
 
@@ -155,6 +156,10 @@ class SeniorScraper(BaseScraper):
                     f"[Senior] HTTP {status} na página {pagina + 1} de '{termo}' — "
                     "parando de paginar (possível bloqueio ou termo inválido)."
                 )
+                if pagina == 0:
+                    raise FonteIndisponivel(
+                        f"HTTP {status} na primeira página de '{termo}'"
+                    ) from e
                 break
             except requests.RequestException as e:
                 # Nunca loga str(e): a mensagem do requests inclui a URL, e o
@@ -165,6 +170,10 @@ class SeniorScraper(BaseScraper):
                     f"[Senior] {type(e).__name__} na página {pagina + 1} de '{termo}' — "
                     "parando de paginar."
                 )
+                if pagina == 0:
+                    raise FonteIndisponivel(
+                        f"falha de rede na primeira página de '{termo}'"
+                    ) from e
                 break
 
             itens = dados.get("contents") or []

@@ -5,7 +5,7 @@ from playwright.sync_api import sync_playwright
 
 from core.job import Job, _e_remoto, _normalizar, extrair_data_publicacao
 from core.logger import get_logger
-from scrapers.base import BaseScraper
+from scrapers.base import BaseScraper, FonteIndisponivel
 
 logger = get_logger()
 
@@ -36,8 +36,9 @@ class CathoScraper(BaseScraper):
     def buscar_vagas(self) -> list[Job]:
         vagas: list[Job] = []
         for termo in self.termos_busca:
-            vagas.extend(self._buscar_termo(termo))
+            vagas.extend(self._executar_consulta(self._buscar_termo, termo))
 
+        self._validar_disponibilidade()
         logger.info(f"[Catho] {len(vagas)} vaga(s) encontrada(s) no total")
         return vagas
 
@@ -114,6 +115,7 @@ class CathoScraper(BaseScraper):
 
             except Exception as e:
                 logger.error(f"[Catho] Erro ao buscar '{termo}': {e}")
+                raise FonteIndisponivel(f"falha ao buscar '{termo}'") from e
             finally:
                 browser.close()
 

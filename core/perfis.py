@@ -70,9 +70,9 @@ from scrapers.senior import SeniorScraper
 from scrapers.solides import SolidesScraper
 from scrapers.remotive import RemotiveScraper
 
-# "alta" roda TODO ciclo; "baixa" roda só na primeira execução de cada dia
-# (ver _fontes_baixa_frequencia_ja_rodaram_hoje em main.py). Existe pra
-# fonte de baixo rendimento não pesar no custo de todo ciclo.
+# "alta" roda TODO ciclo; "baixa" roda uma vez por dia depois de concluir
+# com sucesso (ver _fonte_baixa_frequencia_ja_rodou_hoje em main.py). Se
+# falhar, permanece pendente e é tentada novamente no ciclo seguinte.
 FREQUENCIA_ALTA = "alta"
 FREQUENCIA_BAIXA = "baixa"
 

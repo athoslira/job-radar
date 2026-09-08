@@ -5,7 +5,7 @@ import requests
 from core.job import Job
 from core.logger import get_logger
 from scrapers.api_jobs_utils import limpar_html_descricao, titulo_em_ingles_do_nicho
-from scrapers.base import BaseScraper
+from scrapers.base import BaseScraper, FonteIndisponivel
 
 
 logger = get_logger()
@@ -35,7 +35,7 @@ class JobicyScraper(BaseScraper):
             itens = resposta.json().get("jobs", [])
         except (requests.RequestException, ValueError, TypeError) as erro:
             logger.warning("[Jobicy] API indisponível (%s).", type(erro).__name__)
-            return []
+            raise FonteIndisponivel("API Jobicy indisponível") from erro
 
         vagas: list[Job] = []
         for item in itens:

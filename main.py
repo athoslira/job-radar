@@ -32,7 +32,7 @@ from notifier.telegram import (
     notificar_vaga_exploratoria,
     processar_feedback_pendente,
 )
-from core.perfis import FREQUENCIA_ALTA, PERFIS, Perfil
+from core.perfis import FREQUENCIA_ALTA, FREQUENCIA_BAIXA, PERFIS, Perfil
 from utils.filtro import filtrar_vagas
 from core.logger import get_logger
 
@@ -100,36 +100,46 @@ def _atualizar_match_com_descricao(
     return True
 
 
-def _fontes_baixa_frequencia_ja_rodaram_hoje(perfil: Perfil) -> bool:
-    chave = f"baixa_frequencia_ultimo_dia_{perfil.chave}"
+def _chave_ultima_execucao_fonte(perfil: Perfil, nome_fonte: str) -> str:
+    """Chave estável da cadência diária de uma fonte dentro de um perfil."""
+    return f"baixa_frequencia_ultimo_dia_{perfil.chave}_{nome_fonte}"
+
+
+def _fonte_baixa_frequencia_ja_rodou_hoje(perfil: Perfil, definicao) -> bool:
+    chave = _chave_ultima_execucao_fonte(perfil, definicao.classe.__name__)
     return obter_metadado(chave) == date.today().isoformat()
+
+
+def _frequencia_do_scraper(perfil: Perfil, scraper) -> str:
+    for definicao in perfil.definicao_scrapers:
+        if definicao.classe is scraper.__class__:
+            return definicao.frequencia
+    raise ValueError(f"Scraper {scraper.__class__.__name__} não pertence ao perfil {perfil.chave}")
+
+
+def _marcar_fonte_baixa_como_concluida(perfil: Perfil, scraper) -> None:
+    """Marca a fonte somente depois de uma coleta inteiramente bem-sucedida."""
+    if _frequencia_do_scraper(perfil, scraper) != FREQUENCIA_BAIXA:
+        return
+    chave = _chave_ultima_execucao_fonte(perfil, scraper.__class__.__name__)
+    definir_metadado(chave, date.today().isoformat())
 
 
 # Não é mais uma lista fixa construída uma vez: os scrapers recebem só o
 # BLOCO de termos do ciclo atual (ver _proximo_bloco_termos), e a lista de
-# QUAIS fontes entram também varia por ciclo (fonte de baixa frequência só
-# entra na primeira execução do dia) — então precisam ser (re)criados a
-# cada ciclo, não guardados numa constante de módulo. Cada perfil tem sua
-# própria chave de metadados (sufixo perfil.chave), pra rodar dois perfis
-# na mesma execução sem um pisar na cadência do outro.
+# QUAIS fontes entram também varia por ciclo. Cada fonte de baixa frequência
+# tem sua própria chave diária e só é pulada depois de concluir sem falha.
+# Assim, uma fonte indisponível volta a ser tentada no ciclo seguinte sem
+# obrigar as outras fontes diárias a rodarem novamente.
 def _construir_scrapers(perfil: Perfil, termos_busca: list[str]):
-    rodar_baixa_frequencia = not _fontes_baixa_frequencia_ja_rodaram_hoje(perfil)
-
-    scrapers = [
+    return [
         definicao.classe(termos_busca=termos_busca, **definicao.kwargs_extras)
         for definicao in perfil.definicao_scrapers
-        if definicao.frequencia == FREQUENCIA_ALTA or rodar_baixa_frequencia
+        if (
+            definicao.frequencia == FREQUENCIA_ALTA
+            or not _fonte_baixa_frequencia_ja_rodou_hoje(perfil, definicao)
+        )
     ]
-
-    if rodar_baixa_frequencia:
-        # Marca ANTES de rodar (não depois): mesmo que uma fonte de baixa
-        # frequência falhe nesse ciclo, ela "rodou" no sentido de já ter
-        # sido tentada hoje — não deve ser tentada de novo no ciclo
-        # seguinte só porque deu erro. Falha individual já é tratada e
-        # logada normalmente em ciclo_de_busca(), como qualquer scraper.
-        definir_metadado(f"baixa_frequencia_ultimo_dia_{perfil.chave}", date.today().isoformat())
-
-    return scrapers
 
 
 def _proximo_bloco_termos(perfil: Perfil) -> list[str]:
@@ -171,7 +181,7 @@ def _enviar_heartbeat_diario(
     """No máximo 1 mensagem por dia (por perfil) confirmando que o ciclo
     rodou.
 
-    O alerta de saúde só dispara quando ≥50% das fontes falha — mas se o
+    O alerta de saúde só dispara quando a maioria das fontes falha — mas se o
     workflow parar de rodar por completo (cron desabilitado pelo GitHub
     Actions por inatividade do repositório, erro de config, etc.), não
     existe ALERTA NENHUM disso: silêncio no Telegram fica idêntico a "rodou
@@ -319,6 +329,8 @@ def ciclo_de_busca(perfil: Perfil):
     total_brutas = 0
     total_filtradas = 0
     scrapers_com_problema = []
+    fontes_vazias = []
+    fontes_com_vagas = []
     descartes_escopo_ciclo: Counter = Counter()
 
     termos_do_ciclo = _proximo_bloco_termos(perfil)
@@ -327,6 +339,9 @@ def ciclo_de_busca(perfil: Perfil):
         f"{len(perfil.termos_busca)} — {', '.join(termos_do_ciclo)}"
     )
     scrapers = _construir_scrapers(perfil, termos_do_ciclo)
+    nomes_configurados = [d.classe.__name__ for d in perfil.definicao_scrapers]
+    nomes_agendados = {s.__class__.__name__ for s in scrapers}
+    fontes_puladas = [nome for nome in nomes_configurados if nome not in nomes_agendados]
 
     # A parte lenta (abrir navegador, navegar, esperar seletor) roda em
     # paralelo aqui. Tudo que segue (filtrar, checar dedup, notificar,
@@ -350,16 +365,34 @@ def ciclo_de_busca(perfil: Perfil):
                 scrapers_com_problema.append(nome)
                 continue
 
-            # Cada scraper trata timeout por termo internamente (só loga e
-            # segue pro próximo termo), então um site totalmente bloqueado
-            # não lança exceção pra cá — só devolve lista vazia. Por isso
-            # também contamos "0 vaga bruta nessa fonte" como problema, não
-            # só exceção.
-            if not vagas:
-                logger.warning(f"[{perfil.nome}] {nome} não retornou nenhuma vaga bruta neste ciclo.")
+            falhas_parciais = getattr(scraper, "consultas_com_falha", 0)
+            consultas_total = getattr(scraper, "consultas_total", 0)
+            if falhas_parciais:
                 scrapers_com_problema.append(nome)
+                logger.warning(
+                    f"[{perfil.nome}] {nome} concluiu parcialmente: "
+                    f"{falhas_parciais}/{consultas_total} consulta(s) falharam. "
+                    "A fonte será tentada novamente no próximo ciclo."
+                )
+            else:
+                # Fontes diárias só recebem o marcador depois de concluir.
+                # Se a fonte falhar total ou parcialmente, continua pendente
+                # e volta automaticamente no próximo ciclo.
+                _marcar_fonte_baixa_como_concluida(perfil, scraper)
+
+            # Lista vazia é um resultado válido. Falhas de rede/layout agora
+            # são sinalizadas pelos scrapers separadamente; não há motivo para
+            # transformar um dia sem vaga nova em indisponibilidade da fonte.
+            if not vagas:
+                if not falhas_parciais:
+                    fontes_vazias.append(nome)
+                    logger.info(
+                        f"[{perfil.nome}] {nome} executou normalmente, sem vaga bruta neste ciclo."
+                    )
+                logger.info(f"[{perfil.nome}][{nome}] Funil: 0 brutas → 0 filtradas → 0 novas")
                 continue
 
+            fontes_com_vagas.append(nome)
             total_brutas += len(vagas)
             vagas_filtradas, descartes = filtrar_vagas(vagas, perfil.regras)
             descartes_escopo_ciclo.update(descartes)
@@ -478,6 +511,26 @@ def ciclo_de_busca(perfil: Perfil):
         f"[{perfil.nome}] Ciclo concluído: {total_brutas} brutas → {total_filtradas} filtradas → "
         f"{total_novas} nova(s)."
     )
+    logger.info(
+        f"[{perfil.nome}] Fontes: {len(nomes_configurados)} configuradas | "
+        f"{len(scrapers)} executadas | {len(fontes_com_vagas)} com vagas | "
+        f"{len(fontes_vazias)} sem vagas | {len(scrapers_com_problema)} com falha | "
+        f"{len(fontes_puladas)} puladas por cadência."
+    )
+    if fontes_com_vagas:
+        logger.info(f"[{perfil.nome}] Fontes com vagas: {', '.join(sorted(fontes_com_vagas))}")
+    if fontes_vazias:
+        logger.info(f"[{perfil.nome}] Fontes sem vagas: {', '.join(sorted(fontes_vazias))}")
+    if scrapers_com_problema:
+        logger.warning(
+            f"[{perfil.nome}] Fontes com falha total/parcial: "
+            f"{', '.join(sorted(scrapers_com_problema))}"
+        )
+    if fontes_puladas:
+        logger.info(
+            f"[{perfil.nome}] Fontes puladas (já concluídas hoje): "
+            f"{', '.join(sorted(fontes_puladas))}"
+        )
 
     # MEDIDO: descarte por escopo era invisível no log — o funil mostra
     # bruta → filtrada → nova, mas nunca QUAL escopo derrubou vaga nem
@@ -493,15 +546,15 @@ def ciclo_de_busca(perfil: Perfil):
         )
         logger.info(f"[{perfil.nome}] Descarte por escopo: {detalhe}")
 
-    # Alerta de saúde: se a maioria das fontes falhou/voltou vazia, avisa no
+    # Alerta de saúde: se a maioria das fontes executadas falhou, avisa no
     # Telegram. Sem isso, um bloqueio geral ou mudança de layout passaria
     # despercebido — o workflow do GitHub Actions continuaria "verde" mesmo
     # com tudo quebrado.
     if _deve_alertar_saude(len(scrapers_com_problema), len(scrapers)):
         enviar_mensagem(
             f"⚠️ <b>JobRadar {perfil.nome} com problema</b>\n\n"
-            f"{len(scrapers_com_problema)}/{len(scrapers)} fontes falharam ou voltaram "
-            f"vazias neste ciclo: {', '.join(scrapers_com_problema)}.\n\n"
+            f"{len(scrapers_com_problema)}/{len(scrapers)} fontes tiveram falha "
+            f"total ou parcial neste ciclo: {', '.join(scrapers_com_problema)}.\n\n"
             "Vale checar o log do GitHub Actions."
         )
 

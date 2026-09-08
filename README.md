@@ -80,9 +80,9 @@ Vaga com match alto chega na hora, com percentual estimado, sinais do currículo
 - **Um bot, dois nichos:** Dados/BI e CX compartilham chat e banco, mas mantêm estado e feedback separados pelo perfil.
 - **Política geográfica única:** Brasília aceita presencial/híbrido/remoto; o restante do Brasil só remoto; o eixo mundial usa busca remota e títulos em inglês.
 - **Zero infraestrutura:** GitHub Actions como motor de cron, SQLite como banco — versionado no próprio Git, o histórico de vagas já vistas *é* o commit.
-- **Resiliente:** nunca marca vaga como "vista" sem confirmar que a notificação saiu; alerta automático se metade das fontes falhar num ciclo; heartbeat diário confirmando que o robô ainda está de pé.
+- **Resiliente:** nunca marca vaga como "vista" sem confirmar que a notificação saiu; cada fonte diária tem cadência própria e volta no ciclo seguinte se falhar; resultado vazio não é confundido com indisponibilidade; alerta automático se a maioria das fontes executadas falhar; heartbeat diário confirmando que o robô ainda está de pé.
 - **Execução somente no GitHub Actions:** Chromium, Tesseract e os modelos de idioma são instalados pelo workflow; não existe serviço local ou VPS para configurar.
-- **359 testes automatizados em CI:** incluindo localização, descrição completa, ATS, fontes públicas, cache, bloqueios, feedback, mapas de currículo e migração do banco.
+- **364 testes automatizados em CI:** incluindo localização, descrição completa, ATS, fontes públicas, cadência e saúde das fontes, cache, bloqueios, feedback, mapas de currículo e migração do banco.
 
 ## 📁 Estrutura do repositório
 
